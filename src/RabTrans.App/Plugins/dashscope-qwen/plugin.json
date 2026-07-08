@@ -1,0 +1,28 @@
+{
+  "id": "dashscope_qwen",
+  "name": "DashScope Qwen",
+  "type": "translation",
+  "runtime": "process",
+  "entry": "index.js",
+  "capabilities": [ "translation.text", "translation.reasoning.optional" ],
+  "command": "node",
+  "arguments": "{entry}",
+  "configSchema": {
+    "apiKey": {
+      "type": "string",
+      "label": "API Key",
+      "secret": true,
+      "required": true
+    },
+    "model": {
+      "type": "string",
+      "label": "Model",
+      "default": "qwen3.5-35b-a3b"
+    },
+    "enableThinking": {
+      "type": "boolean",
+      "label": "Enable Thinking",
+      "default": "false"
+    }
+  }
+}

@@ -1,0 +1,109 @@
+<Window
+    x:Class="RabTrans.HistoryWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="History"
+    Width="680"
+    Height="560"
+    WindowStartupLocation="CenterOwner"
+    Background="{StaticResource BackgroundBrush}">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="48"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0" Background="{StaticResource SurfaceBrush}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="Translation History"
+                       Style="{StaticResource TitleTextStyle}"
+                       Margin="16,0,0,0"
+                       VerticalAlignment="Center"/>
+            <Button Grid.Column="1"
+                    Content="Refresh"
+                    Width="82"
+                    Margin="0,0,8,0"
+                    VerticalAlignment="Center"
+                    Click="RefreshButton_Click"/>
+            <Button Grid.Column="2"
+                    Content="Clear"
+                    Width="72"
+                    Margin="0,0,16,0"
+                    VerticalAlignment="Center"
+                    Click="ClearButton_Click"/>
+        </Grid>
+
+        <ListBox x:Name="HistoryListBox"
+                 Grid.Row="1"
+                 Margin="16"
+                 BorderBrush="{StaticResource BorderBrush}"
+                 BorderThickness="1"
+                 HorizontalContentAlignment="Stretch"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                 MouseDoubleClick="HistoryListBox_MouseDoubleClick">
+            <ListBox.ItemContainerStyle>
+                <Style TargetType="ListBoxItem">
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                </Style>
+            </ListBox.ItemContainerStyle>
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <Border Padding="12"
+                            BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="0,0,0,1">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="{Binding SourceText}"
+                                       FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextPrimaryBrush}"
+                                       TextWrapping="Wrap"/>
+                            <Button Grid.Column="1"
+                                    Content="&#xE8C8;"
+                                    Style="{StaticResource IconButtonStyle}"
+                                    Width="26"
+                                    Height="24"
+                                    Margin="8,0,0,0"
+                                    ToolTip="Copy history item"
+                                    Tag="{Binding}"
+                                    Click="CopyHistoryItemButton_Click"/>
+                            <TextBlock Grid.Row="1"
+                                       Grid.ColumnSpan="2"
+                                       Text="{Binding TranslatedText}"
+                                       Foreground="{StaticResource TextPrimaryBrush}"
+                                       TextWrapping="Wrap"
+                                       Margin="0,8,0,0"/>
+                            <TextBlock Grid.Row="2"
+                                       Grid.ColumnSpan="2"
+                                       Text="{Binding MetaText}"
+                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                       FontSize="11"
+                                       TextWrapping="Wrap"
+                                       Margin="0,8,0,0"/>
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <Border Grid.Row="2" Background="{StaticResource SurfaceBrush}" Padding="16,12">
+            <Button Content="Close"
+                    Width="80"
+                    HorizontalAlignment="Right"
+                    Click="CloseButton_Click"/>
+        </Border>
+    </Grid>
+</Window>

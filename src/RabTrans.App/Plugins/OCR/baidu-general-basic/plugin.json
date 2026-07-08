@@ -1,0 +1,25 @@
+{
+  "id": "baidu_general_basic_ocr",
+  "name": "Baidu OCR",
+  "type": "ocr",
+  "runtime": "process",
+  "entry": "index.js",
+  "enabled": false,
+  "capabilities": [ "ocr.image" ],
+  "command": "node",
+  "arguments": "{entry}",
+  "configSchema": {
+    "ak": {
+      "type": "string",
+      "label": "API Key",
+      "secret": true,
+      "required": true
+    },
+    "sk": {
+      "type": "string",
+      "label": "Secret Key",
+      "secret": true,
+      "required": true
+    }
+  }
+}

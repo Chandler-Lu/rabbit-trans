@@ -1,0 +1,10 @@
+{
+  "id": "google",
+  "name": "Google Translate",
+  "type": "translation",
+  "runtime": "process",
+  "entry": "index.js",
+  "capabilities": [ "translation.text" ],
+  "command": "node",
+  "arguments": "{entry}"
+}

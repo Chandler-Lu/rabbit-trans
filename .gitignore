@@ -1,0 +1,85 @@
+# RabTrans / .NET / WPF
+
+# Build output
+bin/
+obj/
+out/
+publish/
+artifacts/
+AppPackages/
+BundleArtifacts/
+TestResults/
+
+# Visual Studio / Rider / VS Code
+.vs/
+.idea/
+.vscode/*
+.history/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.rsuser
+
+# .NET restore / tooling
+packages/
+*.nupkg
+*.snupkg
+project.assets.json
+project.nuget.cache
+*.nuget.g.props
+*.nuget.g.targets
+
+# Native / MSBuild intermediates
+Debug/
+Release/
+x64/
+x86/
+ARM64/
+*.VC.db
+*.VC.VC.opendb
+*.opensdf
+*.sdf
+*.ipch
+*.iobj
+*.ipdb
+*.pdb
+*.ilk
+*.obj
+*.pch
+*.tlog
+*.lastbuildstate
+*.recipe
+
+# Logs and crash dumps
+logs/
+*.log
+*.dmp
+*.mdmp
+
+# Keep checked-in plugin templates
+!src/RabTrans.App/Plugins/**/*.json
+
+# Local app data, secrets, and private plugin configs
+*.local.json
+*.secrets.json
+*.private.json
+src/RabTrans.App/Plugins/**/*.local.json
+src/RabTrans.App/Plugins/**/*.secrets.json
+src/RabTrans.App/Plugins/**/*.private.json
+
+# OS files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.orig
+~$*

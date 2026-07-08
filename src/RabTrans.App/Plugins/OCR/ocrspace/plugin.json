@@ -1,0 +1,19 @@
+{
+  "id": "ocrspace",
+  "name": "OCR.Space",
+  "type": "ocr",
+  "runtime": "process",
+  "entry": "index.js",
+  "enabled": false,
+  "capabilities": [ "ocr.image" ],
+  "command": "node",
+  "arguments": "{entry}",
+  "configSchema": {
+    "apiKey": {
+      "type": "string",
+      "label": "API Key",
+      "secret": true,
+      "required": true
+    }
+  }
+}
