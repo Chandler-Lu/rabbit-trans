@@ -204,13 +204,13 @@ public class TranslationService : IDisposable
         if (string.IsNullOrWhiteSpace(text))
             return "en";
 
+        // Japanese text often contains CJK ideographs too, so detect kana before Chinese.
+        if (text.Any(c => (c >= 0x3040 && c <= 0x309F) || (c >= 0x30A0 && c <= 0x30FF)))
+            return "ja";
+
         // Check for Chinese characters
         if (text.Any(c => c >= 0x4E00 && c <= 0x9FFF))
             return "zh-CN";
-
-        // Check for Japanese characters
-        if (text.Any(c => (c >= 0x3040 && c <= 0x309F) || (c >= 0x30A0 && c <= 0x30FF)))
-            return "ja";
 
         // Check for Korean characters
         if (text.Any(c => c >= 0xAC00 && c <= 0xD7AF))

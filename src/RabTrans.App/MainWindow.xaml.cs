@@ -38,6 +38,7 @@ public partial class MainWindow : Window
     private bool _hideOnDeactivate;
     private bool _isOpeningChildWindow;
     private bool _suppressClipboardMonitor;
+    private bool _targetLanguageOverriddenByUser;
     private Point? _lastWindowAnchorPoint;
     private readonly DispatcherTimer _widthLayoutTimer;
 
@@ -350,15 +351,19 @@ public partial class MainWindow : Window
                 sourceLang = await _translationService!.DetectLanguageAsync(sourceText);
             }
 
-            var targetLang = GetSmartTargetLanguage(sourceLang);
-            _isUpdatingLanguageSelection = true;
-            try
+            var targetLang = GetSelectedLanguage(TargetLanguageCombo);
+            if (!_targetLanguageOverriddenByUser)
             {
-                SetSelectedLanguage(TargetLanguageCombo, targetLang, allowAuto: false);
-            }
-            finally
-            {
-                _isUpdatingLanguageSelection = false;
+                targetLang = GetSmartTargetLanguage(sourceLang);
+                _isUpdatingLanguageSelection = true;
+                try
+                {
+                    SetSelectedLanguage(TargetLanguageCombo, targetLang, allowAuto: false);
+                }
+                finally
+                {
+                    _isUpdatingLanguageSelection = false;
+                }
             }
 
             var providers = _enabledProviders.Count > 0 ? _enabledProviders : null;
@@ -542,6 +547,15 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (ReferenceEquals(sender, TargetLanguageCombo))
+        {
+            _targetLanguageOverriddenByUser = true;
+        }
+        else if (ReferenceEquals(sender, SourceLanguageCombo))
+        {
+            _targetLanguageOverriddenByUser = false;
+        }
+
         // Auto-translate when language changes
         if (!string.IsNullOrWhiteSpace(SourceTextBox.Text))
         {
@@ -556,6 +570,7 @@ public partial class MainWindow : Window
 
         SetSelectedLanguage(SourceLanguageCombo, targetLang, allowAuto: true);
         SetSelectedLanguage(TargetLanguageCombo, GetSmartTargetLanguage(targetLang), allowAuto: false);
+        _targetLanguageOverriddenByUser = false;
 
         // Swap text
         var sourceText = SourceTextBox.Text;
