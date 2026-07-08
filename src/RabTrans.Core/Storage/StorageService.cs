@@ -11,6 +11,7 @@ namespace RabTrans.Core.Storage;
 public class StorageService : IDisposable
 {
     private readonly string _databasePath;
+    private readonly string _historyPath;
     private SqliteConnection? _connection;
     private bool _disposed = false;
 
@@ -22,6 +23,7 @@ public class StorageService : IDisposable
         
         Directory.CreateDirectory(appDataPath);
         _databasePath = Path.Combine(appDataPath, "rabtrans.db");
+        _historyPath = Path.Combine(appDataPath, "history.jsonl");
         
         InitializeDatabase();
     }
@@ -39,25 +41,13 @@ public class StorageService : IDisposable
                 value TEXT NOT NULL,
                 encrypted INTEGER DEFAULT 0
             );
-            
-            CREATE TABLE IF NOT EXISTS history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                source_text TEXT NOT NULL,
-                translated_text TEXT NOT NULL,
-                source_lang TEXT NOT NULL,
-                target_lang TEXT NOT NULL,
-                provider TEXT NOT NULL,
-                timestamp TEXT NOT NULL
-            );
-            
+
             CREATE TABLE IF NOT EXISTS plugins (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 enabled INTEGER DEFAULT 1,
                 config TEXT
             );
-            
-            CREATE INDEX IF NOT EXISTS idx_history_timestamp ON history(timestamp DESC);
         ";
         createTablesCommand.ExecuteNonQuery();
     }
@@ -136,28 +126,43 @@ public class StorageService : IDisposable
     /// </summary>
     public async Task<List<TranslationHistoryItem>> GetHistoryAsync(int limit = 100)
     {
-        var history = new List<TranslationHistoryItem>();
-        
-        var command = _connection!.CreateCommand();
-        command.CommandText = "SELECT * FROM history ORDER BY timestamp DESC LIMIT @limit";
-        command.Parameters.AddWithValue("@limit", limit);
-
-        using var reader = await command.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
+        if (!File.Exists(_historyPath))
         {
-            history.Add(new TranslationHistoryItem
-            {
-                Id = reader.GetInt32(0),
-                SourceText = reader.GetString(1),
-                TranslatedText = reader.GetString(2),
-                SourceLang = reader.GetString(3),
-                TargetLang = reader.GetString(4),
-                Provider = reader.GetString(5),
-                Timestamp = DateTime.Parse(reader.GetString(6))
-            });
+            return new List<TranslationHistoryItem>();
         }
 
-        return history;
+        var history = new List<TranslationHistoryItem>();
+        var lines = await File.ReadAllLinesAsync(_historyPath, Encoding.UTF8);
+        foreach (var line in lines)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
+
+            try
+            {
+                var item = JsonSerializer.Deserialize<TranslationHistoryItem>(line);
+                if (item != null)
+                {
+                    history.Add(item);
+                }
+            }
+            catch
+            {
+                // Ignore malformed history lines so one bad record does not hide all history.
+            }
+        }
+
+        return history
+            .OrderByDescending(item => item.Timestamp)
+            .Take(limit)
+            .Select((item, index) =>
+            {
+                item.Id = index + 1;
+                return item;
+            })
+            .ToList();
     }
 
     /// <summary>
@@ -165,19 +170,8 @@ public class StorageService : IDisposable
     /// </summary>
     public async Task AddHistoryAsync(TranslationHistoryItem item)
     {
-        var command = _connection!.CreateCommand();
-        command.CommandText = @"
-            INSERT INTO history (source_text, translated_text, source_lang, target_lang, provider, timestamp)
-            VALUES (@source, @translated, @sourceLang, @targetLang, @provider, @timestamp)";
-        
-        command.Parameters.AddWithValue("@source", item.SourceText);
-        command.Parameters.AddWithValue("@translated", item.TranslatedText);
-        command.Parameters.AddWithValue("@sourceLang", item.SourceLang);
-        command.Parameters.AddWithValue("@targetLang", item.TargetLang);
-        command.Parameters.AddWithValue("@provider", item.Provider);
-        command.Parameters.AddWithValue("@timestamp", item.Timestamp.ToString("O"));
-
-        await command.ExecuteNonQueryAsync();
+        var json = JsonSerializer.Serialize(item);
+        await File.AppendAllTextAsync(_historyPath, json + Environment.NewLine, Encoding.UTF8);
     }
 
     /// <summary>
@@ -185,9 +179,11 @@ public class StorageService : IDisposable
     /// </summary>
     public async Task ClearHistoryAsync()
     {
-        var command = _connection!.CreateCommand();
-        command.CommandText = "DELETE FROM history";
-        await command.ExecuteNonQueryAsync();
+        if (File.Exists(_historyPath))
+        {
+            File.Delete(_historyPath);
+        }
+        await Task.CompletedTask;
     }
 
     /// <summary>

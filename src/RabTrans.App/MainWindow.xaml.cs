@@ -465,8 +465,7 @@ public partial class MainWindow : Window
         _lastTranslationText = string.Join(Environment.NewLine + Environment.NewLine, items.Select(item => $"[{item.ProviderName}]{Environment.NewLine}{item.Text}"));
         TranslatedTextBox.Text = _lastTranslationText;
         ResizeToContent(SourceTextBox.Text, _lastTranslationText);
-        TranslationResultsList.InvalidateMeasure();
-        TranslationResultsList.UpdateLayout();
+        QueueResultScrollViewerLayoutSync();
     }
 
     private static TranslationDisplayItem ToDisplayItem(TranslationResult result)
@@ -535,7 +534,6 @@ public partial class MainWindow : Window
             var maxResultHeight = Math.Min(560, maxWindowHeight - chromeHeight - sourcePaneHeight - 10);
             var resultHeight = Math.Clamp(desiredResultHeight, 150, Math.Max(150, maxResultHeight));
             ResultPaneRow.Height = new GridLength(1, GridUnitType.Star);
-            TranslationResultsList.MaxHeight = Math.Max(80, resultHeight - resultHeaderHeight);
 
             if (adjustHeight)
             {
@@ -546,11 +544,29 @@ public partial class MainWindow : Window
             {
                 PositionNearPoint(anchorPoint);
             }
+
+            QueueResultScrollViewerLayoutSync();
         }
         finally
         {
             _isApplyingContentLayout = false;
         }
+    }
+
+    private void QueueResultScrollViewerLayoutSync()
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            var visibleHeight = ResultScrollHost.ActualHeight;
+            if (visibleHeight <= 0)
+            {
+                return;
+            }
+
+            ResultScrollViewer.Height = visibleHeight;
+            ResultScrollViewer.InvalidateMeasure();
+            ResultScrollViewer.UpdateLayout();
+        }, DispatcherPriority.Loaded);
     }
 
     private void MainWindow_SizeChanged(object sender, SizeChangedEventArgs e)

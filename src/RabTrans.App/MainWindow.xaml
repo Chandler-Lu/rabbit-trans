@@ -179,76 +179,61 @@
                             <TextBlock Text="Result" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" FontWeight="SemiBold"/>
                         </Grid>
 
-                        <Grid Grid.Row="1" ClipToBounds="True">
+                        <Grid x:Name="ResultScrollHost" Grid.Row="1" ClipToBounds="True">
                             <TextBox x:Name="TranslatedTextBox"
                                      Visibility="Collapsed"
                                      TextWrapping="Wrap"
                                      IsReadOnly="True"/>
 
-                            <ListBox x:Name="TranslationResultsList"
-                                     BorderThickness="0"
-                                     Background="Transparent"
-                                     HorizontalContentAlignment="Stretch"
-                                     ScrollViewer.VerticalScrollBarVisibility="Auto"
-                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                                <ListBox.ItemContainerStyle>
-                                    <Style TargetType="ListBoxItem">
-                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                        <Setter Property="Padding" Value="0"/>
-                                        <Setter Property="Margin" Value="0"/>
-                                        <Setter Property="Focusable" Value="False"/>
-                                        <Setter Property="Background" Value="Transparent"/>
-                                        <Setter Property="BorderThickness" Value="0"/>
-                                        <Setter Property="Template">
-                                            <Setter.Value>
-                                                <ControlTemplate TargetType="ListBoxItem">
-                                                    <ContentPresenter/>
-                                                </ControlTemplate>
-                                            </Setter.Value>
-                                        </Setter>
-                                    </Style>
-                                </ListBox.ItemContainerStyle>
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <Border BorderBrush="{StaticResource BorderBrush}"
-                                                BorderThickness="1"
-                                                CornerRadius="6"
-                                                Padding="10"
-                                                Margin="0,0,0,8">
-                                            <StackPanel>
-                                                <Grid Margin="0,0,0,6">
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="*"/>
-                                                        <ColumnDefinition Width="Auto"/>
-                                                        <ColumnDefinition Width="Auto"/>
-                                                    </Grid.ColumnDefinitions>
-                                                    <TextBlock Text="{Binding ProviderName}"
-                                                               FontWeight="SemiBold"
-                                                               Foreground="{StaticResource TextPrimaryBrush}"/>
-                                                    <TextBlock Grid.Column="1"
-                                                               Text="{Binding StatusText}"
-                                                               Foreground="{Binding StatusBrush}"
-                                                               FontSize="12"
-                                                               VerticalAlignment="Center"/>
-                                                    <Button Grid.Column="2"
-                                                            Content="&#xE8C8;"
-                                                            Style="{StaticResource IconButtonStyle}"
-                                                            Width="24"
-                                                            Height="22"
-                                                            Margin="8,0,0,0"
-                                                            ToolTip="Copy this result"
-                                                            Tag="{Binding Text}"
-                                                            Click="CopySingleResultButton_Click"/>
-                                                </Grid>
-                                                <TextBlock Text="{Binding Text}"
-                                                           Foreground="{StaticResource TextPrimaryBrush}"
-                                                           TextWrapping="Wrap"
-                                                           FontSize="14"/>
-                                            </StackPanel>
-                                        </Border>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
+                            <ScrollViewer x:Name="ResultScrollViewer"
+                                          VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled"
+                                          CanContentScroll="False"
+                                          Padding="0"
+                                          Margin="0">
+                                <ItemsControl x:Name="TranslationResultsList">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border BorderBrush="{StaticResource BorderBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="6"
+                                                    Padding="10"
+                                                    Margin="0,0,0,8">
+                                                <StackPanel>
+                                                    <Grid Margin="0,0,0,6">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <TextBlock Text="{Binding ProviderName}"
+                                                                   FontWeight="SemiBold"
+                                                                   Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                        <TextBlock Grid.Column="1"
+                                                                   Text="{Binding StatusText}"
+                                                                   Foreground="{Binding StatusBrush}"
+                                                                   FontSize="12"
+                                                                   VerticalAlignment="Center"/>
+                                                        <Button Grid.Column="2"
+                                                                Content="&#xE8C8;"
+                                                                Style="{StaticResource IconButtonStyle}"
+                                                                Width="24"
+                                                                Height="22"
+                                                                Margin="8,0,0,0"
+                                                                ToolTip="Copy this result"
+                                                                Tag="{Binding Text}"
+                                                                Click="CopySingleResultButton_Click"/>
+                                                    </Grid>
+                                                    <TextBlock Text="{Binding Text}"
+                                                               Foreground="{StaticResource TextPrimaryBrush}"
+                                                               TextWrapping="Wrap"
+                                                               FontSize="14"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
                         </Grid>
                     </Grid>
                 </Border>
