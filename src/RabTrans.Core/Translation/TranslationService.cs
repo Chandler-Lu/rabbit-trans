@@ -161,6 +161,32 @@ public class TranslationService : IDisposable
         string to,
         IEnumerable<string>? providerNames = null)
     {
+        var tasks = GetSelectedProviders(providerNames)
+            .Select(providerName => TranslateWithProviderAsync(providerName, text, from, to));
+        return await Task.WhenAll(tasks);
+    }
+
+    public async IAsyncEnumerable<TranslationResult> TranslateWithProvidersAsCompletedAsync(
+        string text,
+        string from,
+        string to,
+        IEnumerable<string>? providerNames = null)
+    {
+        var selectedProviders = GetSelectedProviders(providerNames);
+        var tasks = selectedProviders
+            .Select(providerName => TranslateWithProviderAsync(providerName, text, from, to))
+            .ToList();
+
+        while (tasks.Count > 0)
+        {
+            var completedTask = await Task.WhenAny(tasks);
+            tasks.Remove(completedTask);
+            yield return await completedTask;
+        }
+    }
+
+    private List<string> GetSelectedProviders(IEnumerable<string>? providerNames)
+    {
         var selectedProviders = (providerNames ?? _providers.Keys)
             .Where(_providers.ContainsKey)
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -171,28 +197,28 @@ public class TranslationService : IDisposable
             selectedProviders.Add(_currentProvider);
         }
 
-        var tasks = selectedProviders.Select(async providerName =>
-        {
-            try
-            {
-                var result = await _providers[providerName].TranslateAsync(text, from, to);
-                result.ProviderName = providerName;
-                return result;
-            }
-            catch (Exception ex)
-            {
-                return new TranslationResult
-                {
-                    ProviderName = providerName,
-                    Success = false,
-                    SourceLanguage = from,
-                    TargetLanguage = to,
-                    ErrorMessage = ex.Message
-                };
-            }
-        });
+        return selectedProviders;
+    }
 
-        return await Task.WhenAll(tasks);
+    private async Task<TranslationResult> TranslateWithProviderAsync(string providerName, string text, string from, string to)
+    {
+        try
+        {
+            var result = await _providers[providerName].TranslateAsync(text, from, to);
+            result.ProviderName = providerName;
+            return result;
+        }
+        catch (Exception ex)
+        {
+            return new TranslationResult
+            {
+                ProviderName = providerName,
+                Success = false,
+                SourceLanguage = from,
+                TargetLanguage = to,
+                ErrorMessage = ex.Message
+            };
+        }
     }
 
     /// <summary>

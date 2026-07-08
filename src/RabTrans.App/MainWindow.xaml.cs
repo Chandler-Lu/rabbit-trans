@@ -38,7 +38,10 @@ public partial class MainWindow : Window
     private bool _hideOnDeactivate;
     private bool _isOpeningChildWindow;
     private bool _suppressClipboardMonitor;
+    private bool _isSettingSourceTextProgrammatically;
     private bool _targetLanguageOverriddenByUser;
+    private string? _targetLanguageOverrideSourceLang;
+    private int _translationRequestVersion;
     private Point? _lastWindowAnchorPoint;
     private readonly DispatcherTimer _widthLayoutTimer;
 
@@ -164,7 +167,7 @@ public partial class MainWindow : Window
         // Auto-translate clipboard text
         Dispatcher.Invoke(async () =>
         {
-            SourceTextBox.Text = e.Text;
+            SetSourceText(e.Text, resetTargetLanguageOverride: true);
             ResizeToContent(e.Text, _lastTranslationText);
             await TranslateAsync();
         });
@@ -207,7 +210,7 @@ public partial class MainWindow : Window
                 var ocrText = await _ocrService.RecognizeAsync(screenshotStream);
                 if (!string.IsNullOrEmpty(ocrText))
                 {
-                    SourceTextBox.Text = ocrText;
+                    SetSourceText(ocrText, resetTargetLanguageOverride: true);
                     ResizeToContent(ocrText, _lastTranslationText);
                     ShowNearCursor();
                     await TranslateAsync();
@@ -247,7 +250,7 @@ public partial class MainWindow : Window
 
         if (!string.IsNullOrWhiteSpace(selectedText))
         {
-            SourceTextBox.Text = selectedText;
+            SetSourceText(selectedText, resetTargetLanguageOverride: true);
             ResizeToContent(selectedText, _lastTranslationText);
             ShowNearCursor(anchorPoint);
             await TranslateAsync();
@@ -332,6 +335,7 @@ public partial class MainWindow : Window
 
     private async Task TranslateAsync()
     {
+        var requestVersion = ++_translationRequestVersion;
         var sourceText = SourceTextBox.Text;
         if (string.IsNullOrWhiteSpace(sourceText))
         {
@@ -352,6 +356,19 @@ public partial class MainWindow : Window
             }
 
             var targetLang = GetSelectedLanguage(TargetLanguageCombo);
+            if (_targetLanguageOverriddenByUser)
+            {
+                if (string.IsNullOrWhiteSpace(_targetLanguageOverrideSourceLang))
+                {
+                    _targetLanguageOverrideSourceLang = sourceLang;
+                }
+                else if (!string.Equals(_targetLanguageOverrideSourceLang, sourceLang, StringComparison.OrdinalIgnoreCase))
+                {
+                    _targetLanguageOverriddenByUser = false;
+                    _targetLanguageOverrideSourceLang = null;
+                }
+            }
+
             if (!_targetLanguageOverriddenByUser)
             {
                 targetLang = GetSmartTargetLanguage(sourceLang);
@@ -367,19 +384,28 @@ public partial class MainWindow : Window
             }
 
             var providers = _enabledProviders.Count > 0 ? _enabledProviders : null;
-            var results = await _translationService!.TranslateWithProvidersAsync(sourceText, sourceLang, targetLang, providers);
-            
-            var successfulResults = results.Where(r => r.Success).ToList();
-            if (successfulResults.Count > 0)
-            {
-                UpdateTranslationResults(results);
-                StatusText.Text = successfulResults.Count == 1
-                    ? "Translation complete"
-                    : $"Translation complete ({successfulResults.Count} services)";
+            var results = new List<TranslationResult>();
+            var successfulCount = 0;
+            ShowTranslationDisplayItems(results);
 
-                if (_storageService != null)
+            await foreach (var result in _translationService!.TranslateWithProvidersAsCompletedAsync(sourceText, sourceLang, targetLang, providers))
+            {
+                if (requestVersion != _translationRequestVersion)
                 {
-                    foreach (var result in successfulResults)
+                    return;
+                }
+
+                results.Add(result);
+                ShowTranslationDisplayItems(results);
+
+                if (result.Success)
+                {
+                    successfulCount++;
+                    StatusText.Text = successfulCount == 1
+                    ? "Translation complete"
+                    : $"Translation complete ({successfulCount} services)";
+
+                    if (_storageService != null)
                     {
                         await _storageService.AddHistoryAsync(new TranslationHistoryItem
                         {
@@ -392,11 +418,26 @@ public partial class MainWindow : Window
                         });
                     }
                 }
+                else
+                {
+                    StatusText.Text = successfulCount > 0
+                        ? $"Translation complete ({successfulCount} services), some failed"
+                        : "Translation failed";
+                }
             }
-            else
+
+            if (requestVersion != _translationRequestVersion)
             {
-                UpdateTranslationResults(results);
+                return;
+            }
+
+            if (successfulCount == 0)
+            {
                 StatusText.Text = "Translation failed";
+            }
+            else if (results.Any(result => !result.Success))
+            {
+                StatusText.Text = $"Translation complete ({successfulCount} services), some failed";
             }
         }
         catch (Exception ex)
@@ -406,26 +447,37 @@ public partial class MainWindow : Window
         }
         finally
         {
-            TranslateButton.IsEnabled = true;
+            if (requestVersion == _translationRequestVersion)
+            {
+                TranslateButton.IsEnabled = true;
+            }
         }
     }
 
-    private void UpdateTranslationResults(IReadOnlyList<TranslationResult> results)
+    private void ShowTranslationDisplayItems(IReadOnlyList<TranslationResult> results)
     {
-        var items = results
-            .Select(result => new TranslationDisplayItem
-            {
-                ProviderName = string.IsNullOrWhiteSpace(result.ProviderName) ? "provider" : result.ProviderName,
-                Text = result.Success ? result.TranslatedText : result.ErrorMessage ?? "Failed",
-                StatusText = result.Success ? "OK" : "Error",
-                StatusBrush = result.Success ? Brushes.SeaGreen : Brushes.IndianRed
-            })
-            .ToList();
+        ShowTranslationDisplayItems(results.Select(ToDisplayItem).ToList());
+    }
 
+    private void ShowTranslationDisplayItems(IReadOnlyList<TranslationDisplayItem> items)
+    {
         TranslationResultsList.ItemsSource = items;
         _lastTranslationText = string.Join(Environment.NewLine + Environment.NewLine, items.Select(item => $"[{item.ProviderName}]{Environment.NewLine}{item.Text}"));
         TranslatedTextBox.Text = _lastTranslationText;
         ResizeToContent(SourceTextBox.Text, _lastTranslationText);
+        TranslationResultsList.InvalidateMeasure();
+        TranslationResultsList.UpdateLayout();
+    }
+
+    private static TranslationDisplayItem ToDisplayItem(TranslationResult result)
+    {
+        return new TranslationDisplayItem
+        {
+            ProviderName = string.IsNullOrWhiteSpace(result.ProviderName) ? "provider" : result.ProviderName,
+            Text = result.Success ? result.TranslatedText : result.ErrorMessage ?? "Failed",
+            StatusText = result.Success ? "OK" : "Error",
+            StatusBrush = result.Success ? Brushes.SeaGreen : Brushes.IndianRed
+        };
     }
 
     private static string GetSmartTargetLanguage(string sourceLang)
@@ -481,11 +533,12 @@ public partial class MainWindow : Window
             var desiredResultHeight = resultHeaderHeight + resultLines * 18 + resultCount * 50;
             var maxWindowHeight = Math.Min(820, workArea.Height - 32);
             var maxResultHeight = Math.Min(560, maxWindowHeight - chromeHeight - sourcePaneHeight - 10);
+            var resultHeight = Math.Clamp(desiredResultHeight, 150, Math.Max(150, maxResultHeight));
             ResultPaneRow.Height = new GridLength(1, GridUnitType.Star);
+            TranslationResultsList.MaxHeight = Math.Max(80, resultHeight - resultHeaderHeight);
 
             if (adjustHeight)
             {
-                var resultHeight = Math.Clamp(desiredResultHeight, 150, Math.Max(150, maxResultHeight));
                 Height = Math.Clamp(chromeHeight + sourcePaneHeight + 10 + resultHeight, MinHeight, maxWindowHeight);
             }
 
@@ -550,10 +603,12 @@ public partial class MainWindow : Window
         if (ReferenceEquals(sender, TargetLanguageCombo))
         {
             _targetLanguageOverriddenByUser = true;
+            _targetLanguageOverrideSourceLang = null;
         }
         else if (ReferenceEquals(sender, SourceLanguageCombo))
         {
             _targetLanguageOverriddenByUser = false;
+            _targetLanguageOverrideSourceLang = null;
         }
 
         // Auto-translate when language changes
@@ -571,12 +626,13 @@ public partial class MainWindow : Window
         SetSelectedLanguage(SourceLanguageCombo, targetLang, allowAuto: true);
         SetSelectedLanguage(TargetLanguageCombo, GetSmartTargetLanguage(targetLang), allowAuto: false);
         _targetLanguageOverriddenByUser = false;
+        _targetLanguageOverrideSourceLang = null;
 
         // Swap text
         var sourceText = SourceTextBox.Text;
         var translatedText = _lastTranslationText;
         
-        SourceTextBox.Text = translatedText;
+        SetSourceText(translatedText, resetTargetLanguageOverride: false);
         TranslatedTextBox.Text = sourceText;
         TranslationResultsList.ItemsSource = null;
         _lastTranslationText = sourceText;
@@ -585,7 +641,31 @@ public partial class MainWindow : Window
 
     private void SourceText_TextChanged(object sender, TextChangedEventArgs e)
     {
+        if (!_isSettingSourceTextProgrammatically && _targetLanguageOverriddenByUser)
+        {
+            _targetLanguageOverrideSourceLang = null;
+        }
+
         ResizeToContent(SourceTextBox.Text, _lastTranslationText);
+    }
+
+    private void SetSourceText(string text, bool resetTargetLanguageOverride)
+    {
+        if (resetTargetLanguageOverride)
+        {
+            _targetLanguageOverriddenByUser = false;
+            _targetLanguageOverrideSourceLang = null;
+        }
+
+        _isSettingSourceTextProgrammatically = true;
+        try
+        {
+            SourceTextBox.Text = text;
+        }
+        finally
+        {
+            _isSettingSourceTextProgrammatically = false;
+        }
     }
 
     private async void OcrButton_Click(object sender, RoutedEventArgs e)
@@ -598,7 +678,7 @@ public partial class MainWindow : Window
         var clipboardText = _clipboardMonitor?.GetClipboardText();
         if (!string.IsNullOrEmpty(clipboardText))
         {
-            SourceTextBox.Text = clipboardText;
+            SetSourceText(clipboardText, resetTargetLanguageOverride: true);
             ResizeToContent(clipboardText, _lastTranslationText);
         }
     }

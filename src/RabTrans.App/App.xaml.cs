@@ -18,11 +18,18 @@ namespace RabTrans;
 /// </summary>
 public partial class App : Application
 {
+    private const string SingleInstanceMutexName = @"Local\RabTrans.SingleInstance";
+    private const string SingleInstanceActivateEventName = @"Local\RabTrans.Activate";
+
     private static IServiceProvider? _serviceProvider;
     public static IServiceProvider Services => _serviceProvider ?? throw new InvalidOperationException("Services not initialized");
 
     private MainWindow? _mainWindow;
     private TaskbarIcon? _trayIcon;
+    private Mutex? _singleInstanceMutex;
+    private bool _ownsSingleInstanceMutex;
+    private EventWaitHandle? _activateEvent;
+    private CancellationTokenSource? _activateListenerCancellation;
 
     public App()
     {
@@ -78,10 +85,20 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs args)
     {
-        base.OnStartup(args);
-
         try
         {
+            _singleInstanceMutex = new Mutex(true, SingleInstanceMutexName, out var isFirstInstance);
+            if (!isFirstInstance)
+            {
+                SignalExistingInstance();
+                Shutdown();
+                return;
+            }
+
+            _ownsSingleInstanceMutex = true;
+            StartActivationListener();
+            base.OnStartup(args);
+
             var silentStartup = args.Args.Any(arg =>
                 arg.Equals("--silent", StringComparison.OrdinalIgnoreCase) ||
                 arg.Equals("/silent", StringComparison.OrdinalIgnoreCase));
@@ -113,6 +130,44 @@ public partial class App : Application
             MessageBox.Show($"Failed to start RabTrans: {ex.Message}", "RabTrans", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(-1);
         }
+    }
+
+    private static void SignalExistingInstance()
+    {
+        try
+        {
+            using var activateEvent = EventWaitHandle.OpenExisting(SingleInstanceActivateEventName);
+            activateEvent.Set();
+        }
+        catch
+        {
+            // If the first instance is still starting, failing to signal should not spawn a second app.
+        }
+    }
+
+    private void StartActivationListener()
+    {
+        _activateEvent = new EventWaitHandle(false, EventResetMode.AutoReset, SingleInstanceActivateEventName);
+        _activateListenerCancellation = new CancellationTokenSource();
+        var token = _activateListenerCancellation.Token;
+
+        Task.Run(() =>
+        {
+            while (!token.IsCancellationRequested)
+            {
+                try
+                {
+                    if (_activateEvent.WaitOne(250))
+                    {
+                        Dispatcher.Invoke(() => _mainWindow?.ShowInputTranslate());
+                    }
+                }
+                catch (ObjectDisposedException)
+                {
+                    return;
+                }
+            }
+        }, token);
     }
 
     private void SetupSystemTray()
@@ -182,6 +237,19 @@ public partial class App : Application
 
         _trayIcon?.Dispose();
         _trayIcon = null;
+        _activateListenerCancellation?.Cancel();
+        _activateListenerCancellation?.Dispose();
+        _activateListenerCancellation = null;
+        _activateEvent?.Dispose();
+        _activateEvent = null;
+        if (_ownsSingleInstanceMutex)
+        {
+            _singleInstanceMutex?.ReleaseMutex();
+            _ownsSingleInstanceMutex = false;
+        }
+
+        _singleInstanceMutex?.Dispose();
+        _singleInstanceMutex = null;
 
         Log.CloseAndFlush();
         base.OnExit(args);
