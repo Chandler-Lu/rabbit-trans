@@ -24,45 +24,84 @@ public class OcrService : IDisposable
         return _plugins.Select(plugin => plugin.Name).ToList();
     }
 
+    public IReadOnlyList<string> GetProviders() => _plugins.Select(plugin => plugin.Id).ToList();
+
+    public string GetProviderDisplayName(string providerName)
+    {
+        return _plugins.FirstOrDefault(plugin => plugin.Id.Equals(providerName, StringComparison.OrdinalIgnoreCase))?.Name
+            ?? providerName;
+    }
+
     public void ReloadPlugins()
     {
         _plugins.Clear();
         _plugins.AddRange(LoadPluginManifests());
     }
 
-    public async Task<string> RecognizeAsync(Stream imageStream)
+    public async Task<string> RecognizeAsync(Stream imageStream, IEnumerable<string>? providerNames = null)
     {
         if (_plugins.Count == 0)
         {
-            throw new InvalidOperationException("No OCR plugin configured. Enable an OCR plugin json in Plugins/OCR.");
+            throw new InvalidOperationException("No OCR plugin configured.");
         }
 
         using var memoryStream = new MemoryStream();
         await imageStream.CopyToAsync(memoryStream);
         var imageBytes = memoryStream.ToArray();
-
-        foreach (var plugin in _plugins)
+        var selectedPlugins = GetSelectedPlugins(providerNames);
+        if (selectedPlugins.Count == 0)
         {
-            var result = await RecognizeWithProcessPluginAsync(plugin, imageBytes);
-            if (!string.IsNullOrWhiteSpace(result))
+            throw new InvalidOperationException("No OCR plugin enabled.");
+        }
+
+        Exception? lastError = null;
+        foreach (var plugin in selectedPlugins)
+        {
+            try
             {
-                return result;
+                var result = await RecognizeWithProcessPluginAsync(plugin, imageBytes);
+                if (!string.IsNullOrWhiteSpace(result))
+                {
+                    return result;
+                }
             }
+            catch (Exception ex)
+            {
+                lastError = ex;
+            }
+        }
+
+        if (lastError != null)
+        {
+            throw new InvalidOperationException(lastError.Message, lastError);
         }
 
         return string.Empty;
     }
 
-    public async Task<string> RecognizeAsync(byte[] imageData)
+    public async Task<string> RecognizeAsync(byte[] imageData, IEnumerable<string>? providerNames = null)
     {
         using var stream = new MemoryStream(imageData);
-        return await RecognizeAsync(stream);
+        return await RecognizeAsync(stream, providerNames);
     }
 
-    public async Task<string> RecognizeFromFileAsync(string filePath)
+    public async Task<string> RecognizeFromFileAsync(string filePath, IEnumerable<string>? providerNames = null)
     {
         using var stream = File.OpenRead(filePath);
-        return await RecognizeAsync(stream);
+        return await RecognizeAsync(stream, providerNames);
+    }
+
+    private List<OcrPluginManifest> GetSelectedPlugins(IEnumerable<string>? providerNames)
+    {
+        var selectedProviderNames = (providerNames ?? _plugins.Select(plugin => plugin.Id))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return selectedProviderNames
+            .Select(providerName => _plugins.FirstOrDefault(plugin => plugin.Id.Equals(providerName, StringComparison.OrdinalIgnoreCase)))
+            .Where(plugin => plugin != null)
+            .Cast<OcrPluginManifest>()
+            .ToList();
     }
 
     private async Task<string> RecognizeWithProcessPluginAsync(OcrPluginManifest plugin, byte[] imageBytes)
@@ -145,7 +184,8 @@ public class OcrService : IDisposable
             .Where(Directory.Exists)
             .SelectMany(EnumeratePluginManifestFiles)
             .Select(TryLoadManifest)
-            .Where(manifest => manifest is { Enabled: true } &&
+            .Where(manifest => manifest != null &&
+                !string.IsNullOrWhiteSpace(manifest.Id) &&
                 manifest.Type.Equals("ocr", StringComparison.OrdinalIgnoreCase) &&
                 manifest.Runtime.Equals("process", StringComparison.OrdinalIgnoreCase) &&
                 !string.IsNullOrWhiteSpace(manifest.Entry))
@@ -194,7 +234,6 @@ public class OcrPluginManifest
     public string Arguments { get; set; } = string.Empty;
     [JsonIgnore]
     public string PluginDirectory { get; set; } = string.Empty;
-    public bool Enabled { get; set; } = false;
     public Dictionary<string, OcrPluginConfigField> ConfigSchema { get; set; } = new();
 
     public static OcrPluginManifest? Load(string manifestPath)

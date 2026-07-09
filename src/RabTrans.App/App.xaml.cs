@@ -41,7 +41,6 @@ public partial class App : Application
         Log.Logger = new LoggerConfiguration()
             .MinimumLevel.Debug()
             .WriteTo.File(logPath, rollingInterval: RollingInterval.Day)
-            .WriteTo.Console()
             .CreateLogger();
 
         Log.Information("RabTrans starting...");
@@ -181,8 +180,8 @@ public partial class App : Application
         _trayIcon.TrayMouseDoubleClick += (_, _) => _mainWindow?.ShowInputTranslate();
 
         var menu = new ContextMenu();
-        menu.Items.Add(CreateTrayMenuItem("Input Translate", (_, _) => _mainWindow?.ShowInputTranslate()));
-        menu.Items.Add(CreateTrayMenuItem("Screenshot OCR", async (_, _) =>
+        menu.Items.Add(CreateTrayMenuItem("Open Window", (_, _) => _mainWindow?.ShowInputTranslate()));
+        menu.Items.Add(CreateTrayMenuItem("Screenshot Trans", async (_, _) =>
         {
             if (_mainWindow != null)
             {
@@ -203,7 +202,6 @@ public partial class App : Application
             };
             settingsWindow.ShowDialog();
         }));
-        menu.Items.Add(new Separator());
         menu.Items.Add(CreateTrayMenuItem("Exit", (_, _) =>
         {
             _trayIcon?.Dispose();

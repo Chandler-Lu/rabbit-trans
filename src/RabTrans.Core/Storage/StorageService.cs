@@ -1,18 +1,17 @@
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using Microsoft.Data.Sqlite;
 
 namespace RabTrans.Core.Storage;
 
 /// <summary>
-/// Storage service using SQLite with DPAPI encryption for sensitive data.
+/// Storage service using JSON files for settings and translation history.
 /// </summary>
 public class StorageService : IDisposable
 {
-    private readonly string _databasePath;
+    private readonly string _settingsPath;
     private readonly string _historyPath;
-    private SqliteConnection? _connection;
+    private readonly SemaphoreSlim _settingsLock = new(1, 1);
+    private readonly Dictionary<string, JsonElement> _settings;
     private bool _disposed = false;
 
     public StorageService()
@@ -22,34 +21,30 @@ public class StorageService : IDisposable
             "RabTrans");
         
         Directory.CreateDirectory(appDataPath);
-        _databasePath = Path.Combine(appDataPath, "rabtrans.db");
+        _settingsPath = Path.Combine(appDataPath, "settings.json");
         _historyPath = Path.Combine(appDataPath, "history.jsonl");
-        
-        InitializeDatabase();
+        _settings = LoadSettings();
     }
 
-    private void InitializeDatabase()
+    private Dictionary<string, JsonElement> LoadSettings()
     {
-        _connection = new SqliteConnection($"Data Source={_databasePath}");
-        _connection.Open();
+        if (!File.Exists(_settingsPath))
+        {
+            return new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase);
+        }
 
-        // Create tables
-        var createTablesCommand = _connection.CreateCommand();
-        createTablesCommand.CommandText = @"
-            CREATE TABLE IF NOT EXISTS config (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL,
-                encrypted INTEGER DEFAULT 0
-            );
-
-            CREATE TABLE IF NOT EXISTS plugins (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                enabled INTEGER DEFAULT 1,
-                config TEXT
-            );
-        ";
-        createTablesCommand.ExecuteNonQuery();
+        try
+        {
+            var settings = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(
+                File.ReadAllText(_settingsPath, Encoding.UTF8));
+            return settings != null
+                ? new Dictionary<string, JsonElement>(settings, StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase);
+        }
     }
 
     /// <summary>
@@ -57,26 +52,20 @@ public class StorageService : IDisposable
     /// </summary>
     public async Task<T?> GetAsync<T>(string key)
     {
-        var command = _connection!.CreateCommand();
-        command.CommandText = "SELECT value, encrypted FROM config WHERE key = @key";
-        command.Parameters.AddWithValue("@key", key);
-
-        using var reader = await command.ExecuteReaderAsync();
-        if (await reader.ReadAsync())
+        await _settingsLock.WaitAsync();
+        try
         {
-            var value = reader.GetString(0);
-            var encrypted = reader.GetInt32(1) == 1;
-
-            if (encrypted)
+            if (!_settings.TryGetValue(key, out var value))
             {
-                var decrypted = DecryptWithDPAPI(Convert.FromBase64String(value));
-                return JsonSerializer.Deserialize<T>(decrypted);
+                return default;
             }
 
-            return JsonSerializer.Deserialize<T>(value);
+            return value.Deserialize<T>();
         }
-
-        return default;
+        finally
+        {
+            _settingsLock.Release();
+        }
     }
 
     /// <summary>
@@ -84,30 +73,16 @@ public class StorageService : IDisposable
     /// </summary>
     public async Task SetAsync<T>(string key, T value, bool encrypt = false)
     {
-        var json = JsonSerializer.Serialize(value);
-        string storedValue;
-        int encrypted = 0;
-
-        if (encrypt)
+        await _settingsLock.WaitAsync();
+        try
         {
-            var encryptedBytes = EncryptWithDPAPI(Encoding.UTF8.GetBytes(json));
-            storedValue = Convert.ToBase64String(encryptedBytes);
-            encrypted = 1;
+            _settings[key] = JsonSerializer.SerializeToElement(value).Clone();
+            await SaveSettingsAsync();
         }
-        else
+        finally
         {
-            storedValue = json;
+            _settingsLock.Release();
         }
-
-        var command = _connection!.CreateCommand();
-        command.CommandText = @"
-            INSERT OR REPLACE INTO config (key, value, encrypted) 
-            VALUES (@key, @value, @encrypted)";
-        command.Parameters.AddWithValue("@key", key);
-        command.Parameters.AddWithValue("@value", storedValue);
-        command.Parameters.AddWithValue("@encrypted", encrypted);
-
-        await command.ExecuteNonQueryAsync();
     }
 
     /// <summary>
@@ -115,10 +90,28 @@ public class StorageService : IDisposable
     /// </summary>
     public async Task DeleteAsync(string key)
     {
-        var command = _connection!.CreateCommand();
-        command.CommandText = "DELETE FROM config WHERE key = @key";
-        command.Parameters.AddWithValue("@key", key);
-        await command.ExecuteNonQueryAsync();
+        await _settingsLock.WaitAsync();
+        try
+        {
+            if (_settings.Remove(key))
+            {
+                await SaveSettingsAsync();
+            }
+        }
+        finally
+        {
+            _settingsLock.Release();
+        }
+    }
+
+    private async Task SaveSettingsAsync()
+    {
+        var options = new JsonSerializerOptions
+        {
+            WriteIndented = true
+        };
+        var json = JsonSerializer.Serialize(_settings, options);
+        await File.WriteAllTextAsync(_settingsPath, json, Encoding.UTF8);
     }
 
     /// <summary>
@@ -131,9 +124,10 @@ public class StorageService : IDisposable
             return new List<TranslationHistoryItem>();
         }
 
-        var history = new List<TranslationHistoryItem>();
-        var lines = await File.ReadAllLinesAsync(_historyPath, Encoding.UTF8);
-        foreach (var line in lines)
+        var history = new Queue<TranslationHistoryItem>(Math.Max(1, limit));
+        using var stream = new FileStream(_historyPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        while (await reader.ReadLineAsync() is { } line)
         {
             if (string.IsNullOrWhiteSpace(line))
             {
@@ -145,7 +139,11 @@ public class StorageService : IDisposable
                 var item = JsonSerializer.Deserialize<TranslationHistoryItem>(line);
                 if (item != null)
                 {
-                    history.Add(item);
+                    history.Enqueue(item);
+                    while (history.Count > limit)
+                    {
+                        history.Dequeue();
+                    }
                 }
             }
             catch
@@ -156,7 +154,6 @@ public class StorageService : IDisposable
 
         return history
             .OrderByDescending(item => item.Timestamp)
-            .Take(limit)
             .Select((item, index) =>
             {
                 item.Id = index + 1;
@@ -186,28 +183,11 @@ public class StorageService : IDisposable
         await Task.CompletedTask;
     }
 
-    /// <summary>
-    /// Encrypts data using Windows DPAPI.
-    /// </summary>
-    private static byte[] EncryptWithDPAPI(byte[] data)
-    {
-        return ProtectedData.Protect(data, null, DataProtectionScope.CurrentUser);
-    }
-
-    /// <summary>
-    /// Decrypts data using Windows DPAPI.
-    /// </summary>
-    private static byte[] DecryptWithDPAPI(byte[] encryptedData)
-    {
-        return ProtectedData.Unprotect(encryptedData, null, DataProtectionScope.CurrentUser);
-    }
-
     public void Dispose()
     {
         if (!_disposed)
         {
-            _connection?.Close();
-            _connection?.Dispose();
+            _settingsLock.Dispose();
             _disposed = true;
         }
     }

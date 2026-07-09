@@ -30,12 +30,14 @@ public partial class MainWindow : Window
     private ScreenshotService? _screenshotService;
     private StorageService? _storageService;
     private List<string> _enabledProviders = new();
+    private List<string> _enabledOcrProviders = new();
     private string _lastTranslationText = string.Empty;
     private int _ocrHotkeyId = -1;
     private int _translateHotkeyId = -1;
     private bool _isUpdatingLanguageSelection;
     private bool _isApplyingContentLayout;
     private bool _hideOnDeactivate;
+    private bool _pinWindow;
     private bool _isOpeningChildWindow;
     private bool _suppressClipboardMonitor;
     private bool _isSettingSourceTextProgrammatically;
@@ -74,8 +76,6 @@ public partial class MainWindow : Window
         {
             _storageService = App.GetService<StorageService>();
             _translationService = App.GetService<TranslationService>();
-            _ocrService = App.GetService<OcrService>();
-            _screenshotService = App.GetService<ScreenshotService>();
 
             Log.Information("Services initialized");
         }
@@ -109,11 +109,23 @@ public partial class MainWindow : Window
         {
             var clipboardEnabled = _storageService?.GetAsync<bool>("clipboard_monitor").Result ?? false;
             _hideOnDeactivate = _storageService?.GetAsync<bool>("hide_on_deactivate").Result ?? false;
+            _pinWindow = _storageService?.GetAsync<bool>("pin_window").Result ?? false;
+            Topmost = _pinWindow;
+            UpdateWindowOptionButtons();
             PluginRuntimeOptions.NodeExecutablePath = _storageService?.GetAsync<string>("plugin_node_path").Result ?? string.Empty;
             _enabledProviders = _storageService?.GetAsync<List<string>>("enabled_translation_providers").Result ?? new List<string>();
             if (_enabledProviders.Count == 0 && _translationService != null)
             {
                 _enabledProviders = _translationService.GetProviders().Take(1).ToList();
+            }
+
+            if (_ocrService != null)
+            {
+                _enabledOcrProviders = _storageService?.GetAsync<List<string>>("enabled_ocr_providers").Result ?? new List<string>();
+                if (_enabledOcrProviders.Count == 0)
+                {
+                    _enabledOcrProviders = _ocrService.GetProviders().Take(1).ToList();
+                }
             }
 
             var defaultSourceLang = _storageService?.GetAsync<string>("default_source_lang").Result ?? "auto";
@@ -177,11 +189,15 @@ public partial class MainWindow : Window
     {
         try
         {
-            if (_screenshotService == null || _ocrService == null)
+            _screenshotService ??= App.GetService<ScreenshotService>();
+            _ocrService ??= App.GetService<OcrService>();
+            if (_enabledOcrProviders.Count == 0)
             {
-                ShowNearCursor();
-                StatusText.Text = "OCR service unavailable";
-                return;
+                _enabledOcrProviders = _storageService?.GetAsync<List<string>>("enabled_ocr_providers").Result ?? new List<string>();
+                if (_enabledOcrProviders.Count == 0)
+                {
+                    _enabledOcrProviders = _ocrService.GetProviders().Take(1).ToList();
+                }
             }
 
             Hide();
@@ -207,7 +223,7 @@ public partial class MainWindow : Window
             if (screenshotStream != null)
             {
                 StatusText.Text = "Recognizing...";
-                var ocrText = await _ocrService.RecognizeAsync(screenshotStream);
+                var ocrText = await _ocrService.RecognizeAsync(screenshotStream, _enabledOcrProviders);
                 if (!string.IsNullOrEmpty(ocrText))
                 {
                     SetSourceText(ocrText, resetTargetLanguageOverride: true);
@@ -266,6 +282,18 @@ public partial class MainWindow : Window
         _ocrService?.ReloadPlugins();
         LoadSettings();
         StatusText.Text = "Configuration reloaded";
+    }
+
+    public void SuspendConfiguredHotkeys()
+    {
+        _hotkeyService?.UnregisterAll();
+        _ocrHotkeyId = -1;
+        _translateHotkeyId = -1;
+    }
+
+    public void ResumeConfiguredHotkeys()
+    {
+        RegisterConfiguredHotkeys();
     }
 
     public void ShowNearCursor()
@@ -540,11 +568,6 @@ public partial class MainWindow : Window
                 Height = Math.Clamp(chromeHeight + sourcePaneHeight + 10 + resultHeight, MinHeight, maxWindowHeight);
             }
 
-            if (IsVisible && _lastWindowAnchorPoint is Point anchorPoint)
-            {
-                PositionNearPoint(anchorPoint);
-            }
-
             QueueResultScrollViewerLayoutSync();
         }
         finally
@@ -779,9 +802,52 @@ public partial class MainWindow : Window
         Hide();
     }
 
+    private async void PinWindowButton_Click(object sender, RoutedEventArgs e)
+    {
+        _pinWindow = !_pinWindow;
+        Topmost = _pinWindow;
+        UpdateWindowOptionButtons();
+
+        if (_storageService != null)
+        {
+            await _storageService.SetAsync("pin_window", _pinWindow);
+        }
+    }
+
+    private async void HideOnDeactivateButton_Click(object sender, RoutedEventArgs e)
+    {
+        _hideOnDeactivate = !_hideOnDeactivate;
+        UpdateWindowOptionButtons();
+
+        if (_storageService != null)
+        {
+            await _storageService.SetAsync("hide_on_deactivate", _hideOnDeactivate);
+        }
+    }
+
+    private void UpdateWindowOptionButtons()
+    {
+        if (PinWindowButton == null || HideOnDeactivateButton == null)
+        {
+            return;
+        }
+
+        PinWindowButton.Foreground = _pinWindow
+            ? FindResource("PrimaryBrush") as Brush
+            : FindResource("TextSecondaryBrush") as Brush;
+        PinWindowButton.ToolTip = _pinWindow ? "Unpin window" : "Pin window";
+
+        HideOnDeactivateButton.Foreground = _hideOnDeactivate
+            ? FindResource("PrimaryBrush") as Brush
+            : FindResource("TextSecondaryBrush") as Brush;
+        HideOnDeactivateButton.ToolTip = _hideOnDeactivate
+            ? "Disable hide when window loses focus"
+            : "Hide when window loses focus";
+    }
+
     private void MainWindow_Deactivated(object? sender, EventArgs e)
     {
-        if (_hideOnDeactivate && !_isOpeningChildWindow && IsVisible && WindowState != WindowState.Minimized)
+        if (_hideOnDeactivate && !_pinWindow && !_isOpeningChildWindow && IsVisible && WindowState != WindowState.Minimized)
         {
             Hide();
         }

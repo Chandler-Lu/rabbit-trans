@@ -9,6 +9,7 @@ namespace RabTrans;
 public partial class HistoryWindow : Window
 {
     private readonly StorageService _storageService;
+    private readonly List<HistoryDisplayItem> _allHistoryItems = new();
     private readonly ObservableCollection<HistoryDisplayItem> _historyItems = new();
 
     public HistoryWindow()
@@ -21,16 +22,18 @@ public partial class HistoryWindow : Window
 
     private async Task LoadHistoryAsync()
     {
-        _historyItems.Clear();
+        _allHistoryItems.Clear();
         foreach (var item in await _storageService.GetHistoryAsync(200))
         {
-            _historyItems.Add(new HistoryDisplayItem
+            _allHistoryItems.Add(new HistoryDisplayItem
             {
                 SourceText = item.SourceText,
                 TranslatedText = item.TranslatedText,
                 MetaText = $"{item.Provider}  {item.SourceLang} -> {item.TargetLang}  {item.Timestamp:g}"
             });
         }
+
+        ApplySearchFilter();
     }
 
     private async void RefreshButton_Click(object sender, RoutedEventArgs e)
@@ -42,6 +45,31 @@ public partial class HistoryWindow : Window
     {
         await _storageService.ClearHistoryAsync();
         await LoadHistoryAsync();
+    }
+
+    private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        SearchPlaceholder.Visibility = string.IsNullOrWhiteSpace(SearchBox.Text)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        ApplySearchFilter();
+    }
+
+    private void ApplySearchFilter()
+    {
+        var query = SearchBox.Text.Trim();
+        var filteredItems = string.IsNullOrWhiteSpace(query)
+            ? _allHistoryItems
+            : _allHistoryItems
+                .Where(item => ContainsIgnoreCase(item.SourceText, query) ||
+                               ContainsIgnoreCase(item.TranslatedText, query) ||
+                               ContainsIgnoreCase(item.MetaText, query));
+
+        _historyItems.Clear();
+        foreach (var item in filteredItems)
+        {
+            _historyItems.Add(item);
+        }
     }
 
     private void CloseButton_Click(object sender, RoutedEventArgs e)
@@ -68,6 +96,11 @@ public partial class HistoryWindow : Window
     private static void CopyHistoryItem(HistoryDisplayItem item)
     {
         Clipboard.SetText(item.CopyText);
+    }
+
+    private static bool ContainsIgnoreCase(string text, string query)
+    {
+        return text.Contains(query, StringComparison.CurrentCultureIgnoreCase);
     }
 }
 

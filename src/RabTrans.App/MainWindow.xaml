@@ -47,6 +47,16 @@
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,6,0"
                             shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                    <Button x:Name="PinWindowButton"
+                            Content="&#xE718;"
+                            Style="{StaticResource IconButtonStyle}"
+                            ToolTip="Pin window"
+                            Click="PinWindowButton_Click"/>
+                    <Button x:Name="HideOnDeactivateButton"
+                            Content="&#xE890;"
+                            Style="{StaticResource IconButtonStyle}"
+                            ToolTip="Hide when window loses focus"
+                            Click="HideOnDeactivateButton_Click"/>
                     <Button x:Name="MinimizeButton"
                             Content="&#xE921;"
                             Style="{StaticResource IconButtonStyle}"

@@ -4,7 +4,6 @@
   "type": "ocr",
   "runtime": "process",
   "entry": "index.js",
-  "enabled": false,
   "capabilities": [ "ocr.image" ],
   "command": "node",
   "arguments": "{entry}",

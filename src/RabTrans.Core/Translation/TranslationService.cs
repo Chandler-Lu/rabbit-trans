@@ -139,7 +139,7 @@ public class TranslationService : IDisposable
         try
         {
             var result = await provider.TranslateAsync(text, from, to);
-            result.ProviderName = _currentProvider;
+            result.ProviderName = GetProviderDisplayName(_currentProvider);
             return result;
         }
         catch (Exception ex)
@@ -202,17 +202,18 @@ public class TranslationService : IDisposable
 
     private async Task<TranslationResult> TranslateWithProviderAsync(string providerName, string text, string from, string to)
     {
+        var displayName = GetProviderDisplayName(providerName);
         try
         {
             var result = await _providers[providerName].TranslateAsync(text, from, to);
-            result.ProviderName = providerName;
+            result.ProviderName = displayName;
             return result;
         }
         catch (Exception ex)
         {
             return new TranslationResult
             {
-                ProviderName = providerName,
+                ProviderName = displayName,
                 Success = false,
                 SourceLanguage = from,
                 TargetLanguage = to,

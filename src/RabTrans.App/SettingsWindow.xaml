@@ -24,191 +24,239 @@
         </Grid>
 
         <!-- Settings Content -->
-        <ScrollViewer Grid.Row="1" Margin="16">
-            <StackPanel>
-                <!-- General Settings -->
-                <TextBlock Text="General" Style="{StaticResource SubtitleTextStyle}" Margin="0,0,0,8"/>
-                
-                <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,16">
-                    <StackPanel>
-                        <Grid Margin="0,0,0,12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Configuration files" VerticalAlignment="Center"/>
-                            <Button Grid.Column="1"
-                                    Content="Open Folder"
-                                    MinWidth="92"
-                                    Margin="8,0,0,0"
-                                    Click="OpenConfigFolderButton_Click"/>
-                            <Button Grid.Column="2"
-                                    Content="Hot Reload"
-                                    MinWidth="88"
-                                    Margin="8,0,0,0"
-                                    Click="ReloadConfigButton_Click"/>
-                        </Grid>
+        <TabControl Grid.Row="1" Margin="16">
+            <TabItem Header="General">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="0,12,0,0">
+                        <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,16">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Configuration files" VerticalAlignment="Center"/>
+                                    <Button Grid.Column="1"
+                                            Content="Open Folder"
+                                            MinWidth="92"
+                                            Margin="8,0,0,0"
+                                            Click="OpenConfigFolderButton_Click"/>
+                                    <Button Grid.Column="2"
+                                            Content="Hot Reload"
+                                            MinWidth="88"
+                                            Margin="8,0,0,0"
+                                            Click="ReloadConfigButton_Click"/>
+                                </Grid>
 
-                        <TextBlock Text="Node executable path" Margin="0,0,0,4"/>
-                        <TextBox x:Name="NodePathBox"
-                                 Height="32"
-                                 Margin="0,0,0,12"
-                                 Padding="9,3"
-                                 Background="{StaticResource SurfaceBrush}"
-                                 BorderBrush="{StaticResource BorderBrush}"
-                                 BorderThickness="1"
-                                 VerticalContentAlignment="Center"
-                                 ToolTip="Path to node.exe for process plugins"/>
+                                <TextBlock Text="Node executable path" Margin="0,0,0,4"/>
+                                <TextBox x:Name="NodePathBox"
+                                         Height="32"
+                                         Margin="0,0,0,12"
+                                         Padding="9,3"
+                                         Background="{StaticResource SurfaceBrush}"
+                                         BorderBrush="{StaticResource BorderBrush}"
+                                         BorderThickness="1"
+                                         VerticalContentAlignment="Center"
+                                         ToolTip="Path to node.exe for process plugins"/>
 
-                        <CheckBox x:Name="ClipboardMonitorCheckBox" 
-                                  Content="Enable clipboard monitoring"
-                                  Margin="0,0,0,8"/>
-                        
-                        <CheckBox x:Name="AutoStartCheckBox" 
-                                  Content="Start with Windows"
-                                  Margin="0,0,0,8"/>
-                        
-                        <CheckBox x:Name="MinimizeToTrayCheckBox" 
-                                  Content="Minimize to system tray"
-                                  IsChecked="True"
-                                  Margin="0,0,0,8"/>
+                                <CheckBox x:Name="ClipboardMonitorCheckBox" 
+                                          Content="Enable clipboard monitoring"
+                                          Margin="0,0,0,8"/>
+                                
+                                <CheckBox x:Name="AutoStartCheckBox" 
+                                          Content="Start with Windows"
+                                          Margin="0,0,0,8"/>
+                                
+                                <CheckBox x:Name="MinimizeToTrayCheckBox" 
+                                          Content="Minimize to system tray"
+                                          IsChecked="True"
+                                          Margin="0,0,0,8"/>
 
-                        <CheckBox x:Name="HideOnDeactivateCheckBox"
-                                  Content="Hide when window loses focus"
-                                  Margin="0,0,0,8"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,16">
+                            <StackPanel>
+                                <TextBlock Text="Hotkeys" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Screenshot + OCR" VerticalAlignment="Center"/>
+                                    <TextBox x:Name="OcrHotkeyBox"
+                                             Grid.Column="1"
+                                             Width="130"
+                                             IsReadOnly="True"
+                                             IsTabStop="False"
+                                             Text="Alt+Shift+S"/>
+                                    <Button Grid.Column="2"
+                                            Content="Record"
+                                            Width="72"
+                                            Margin="8,0,0,0"
+                                            Click="RecordOcrHotkey_Click"/>
+                                </Grid>
+                                
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Translate Selection" VerticalAlignment="Center"/>
+                                    <TextBox x:Name="TranslateHotkeyBox"
+                                             Grid.Column="1"
+                                             Width="130"
+                                             IsReadOnly="True"
+                                             IsTabStop="False"
+                                             Text="Alt+Shift+T"/>
+                                    <Button Grid.Column="2"
+                                            Content="Record"
+                                            Width="72"
+                                            Margin="8,0,0,0"
+                                            Click="RecordTranslateHotkey_Click"/>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12">
+                            <StackPanel>
+                                <TextBlock Text="About" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                                <TextBlock Text="RabTrans" FontWeight="SemiBold"/>
+                                <TextBlock x:Name="VersionTextBlock" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                <TextBlock Text="A Windows text translation and OCR software" 
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           TextWrapping="Wrap"
+                                           Margin="0,8,0,0"/>
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
-                </Border>
+                </ScrollViewer>
+            </TabItem>
 
-                <!-- Translation Settings -->
-                <TextBlock Text="Translation" Style="{StaticResource SubtitleTextStyle}" Margin="0,0,0,8"/>
-                
-                <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,16">
-                    <StackPanel>
-                        <TextBlock Text="Translation Services" Margin="0,0,0,4"/>
-                        <TextBlock Text="Select one or more translation services. Drag to reorder."
-                                   Foreground="{StaticResource TextSecondaryBrush}"
-                                   TextWrapping="Wrap"
-                                   Margin="0,0,0,8"/>
-                        <Grid Margin="0,0,0,12">
-                            <ListBox x:Name="ProviderListBox"
-                                     BorderBrush="{StaticResource BorderBrush}"
-                                     BorderThickness="1"
-                                     MinHeight="96"
-                                     MaxHeight="150"
-                                     AllowDrop="True"
-                                     PreviewMouseLeftButtonDown="ProviderListBox_PreviewMouseLeftButtonDown"
-                                     MouseMove="ProviderListBox_MouseMove"
-                                     DragOver="ProviderListBox_DragOver"
-                                     DragLeave="ProviderListBox_DragLeave"
-                                     Drop="ProviderListBox_Drop">
-                                <ListBox.ItemContainerStyle>
-                                    <Style TargetType="ListBoxItem">
-                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                    </Style>
-                                </ListBox.ItemContainerStyle>
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <Grid Margin="4">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="Auto"/>
-                                            </Grid.ColumnDefinitions>
-                                            <CheckBox Content="{Binding DisplayName}"
-                                                      IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                                                      VerticalAlignment="Center"/>
-                                            <TextBlock Grid.Column="1"
-                                                       Text="&#xE700;"
-                                                       FontFamily="Segoe MDL2 Assets"
-                                                       Foreground="{StaticResource TextSecondaryBrush}"
-                                                       VerticalAlignment="Center"
-                                                       Margin="8,0,2,0"
-                                                       Cursor="SizeAll"/>
-                                        </Grid>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
-                        </Grid>
+            <TabItem Header="Interfaces">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="0,12,0,0">
+                        <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,16">
+                            <StackPanel>
+                                <TextBlock Text="Translation Services" Margin="0,0,0,4"/>
+                                <TextBlock Text="Select one or more translation services. Drag to reorder."
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           TextWrapping="Wrap"
+                                           Margin="0,0,0,8"/>
+                                <ListBox x:Name="ProviderListBox"
+                                         BorderBrush="{StaticResource BorderBrush}"
+                                         BorderThickness="1"
+                                         MinHeight="96"
+                                         MaxHeight="150"
+                                         AllowDrop="True"
+                                         PreviewMouseLeftButtonDown="ProviderListBox_PreviewMouseLeftButtonDown"
+                                         MouseMove="ProviderListBox_MouseMove"
+                                         DragOver="ProviderListBox_DragOver"
+                                         DragLeave="ProviderListBox_DragLeave"
+                                         Drop="ProviderListBox_Drop">
+                                    <ListBox.ItemContainerStyle>
+                                        <Style TargetType="ListBoxItem">
+                                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                        </Style>
+                                    </ListBox.ItemContainerStyle>
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="4">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                                          VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding DisplayName}"/>
+                                                </CheckBox>
+                                                <TextBlock Grid.Column="1"
+                                                           Text="&#xE700;"
+                                                           FontFamily="Segoe MDL2 Assets"
+                                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                                           VerticalAlignment="Center"
+                                                           Margin="8,0,2,0"
+                                                           Cursor="SizeAll"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </StackPanel>
+                        </Border>
 
-                        <TextBlock Text="Default Source Language" Margin="0,0,0,4"/>
-                        <ComboBox x:Name="DefaultSourceLangCombo" Margin="0,0,0,12">
-                            <ComboBoxItem Content="Auto Detect" Tag="auto" IsSelected="True"/>
-                            <ComboBoxItem Content="English" Tag="en"/>
-                            <ComboBoxItem Content="Chinese" Tag="zh-CN"/>
-                        </ComboBox>
+                        <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,16">
+                            <StackPanel>
+                                <TextBlock Text="OCR Services" Margin="0,0,0,4"/>
+                                <TextBlock Text="Select one or more OCR services. Drag to set fallback order."
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           TextWrapping="Wrap"
+                                           Margin="0,0,0,8"/>
+                                <ListBox x:Name="OcrProviderListBox"
+                                         BorderBrush="{StaticResource BorderBrush}"
+                                         BorderThickness="1"
+                                         MinHeight="96"
+                                         MaxHeight="150"
+                                         AllowDrop="True"
+                                         PreviewMouseLeftButtonDown="ProviderListBox_PreviewMouseLeftButtonDown"
+                                         MouseMove="ProviderListBox_MouseMove"
+                                         DragOver="ProviderListBox_DragOver"
+                                         DragLeave="ProviderListBox_DragLeave"
+                                         Drop="ProviderListBox_Drop">
+                                    <ListBox.ItemContainerStyle>
+                                        <Style TargetType="ListBoxItem">
+                                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                        </Style>
+                                    </ListBox.ItemContainerStyle>
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="4">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                                          VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding DisplayName}"/>
+                                                </CheckBox>
+                                                <TextBlock Grid.Column="1"
+                                                           Text="&#xE700;"
+                                                           FontFamily="Segoe MDL2 Assets"
+                                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                                           VerticalAlignment="Center"
+                                                           Margin="8,0,2,0"
+                                                           Cursor="SizeAll"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </StackPanel>
+                        </Border>
 
-                        <TextBlock Text="Default Target Language" Margin="0,0,0,4"/>
-                        <ComboBox x:Name="DefaultTargetLangCombo">
-                            <ComboBoxItem Content="English" Tag="en"/>
-                            <ComboBoxItem Content="Chinese" Tag="zh-CN" IsSelected="True"/>
-                            <ComboBoxItem Content="Japanese" Tag="ja"/>
-                            <ComboBoxItem Content="Korean" Tag="ko"/>
-                        </ComboBox>
+                        <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12">
+                            <StackPanel>
+                                <TextBlock Text="Default Source Language" Margin="0,0,0,4"/>
+                                <ComboBox x:Name="DefaultSourceLangCombo" Margin="0,0,0,12">
+                                    <ComboBoxItem Content="Auto Detect" Tag="auto" IsSelected="True"/>
+                                    <ComboBoxItem Content="English" Tag="en"/>
+                                    <ComboBoxItem Content="Chinese" Tag="zh-CN"/>
+                                </ComboBox>
+
+                                <TextBlock Text="Default Target Language" Margin="0,0,0,4"/>
+                                <ComboBox x:Name="DefaultTargetLangCombo">
+                                    <ComboBoxItem Content="English" Tag="en"/>
+                                    <ComboBoxItem Content="Chinese" Tag="zh-CN" IsSelected="True"/>
+                                    <ComboBoxItem Content="Japanese" Tag="ja"/>
+                                    <ComboBoxItem Content="Korean" Tag="ko"/>
+                                </ComboBox>
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
-                </Border>
-
-                <!-- Hotkey Settings -->
-                <TextBlock Text="Hotkeys" Style="{StaticResource SubtitleTextStyle}" Margin="0,0,0,8"/>
-                
-                <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,16">
-                    <StackPanel>
-                        <Grid Margin="0,0,0,8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Screenshot + OCR" VerticalAlignment="Center"/>
-                            <TextBox x:Name="OcrHotkeyBox"
-                                     Grid.Column="1"
-                                     Width="130"
-                                     IsReadOnly="True"
-                                     IsTabStop="False"
-                                     Text="Alt+Shift+S"/>
-                            <Button Grid.Column="2"
-                                    Content="Record"
-                                    Width="72"
-                                    Margin="8,0,0,0"
-                                    Click="RecordOcrHotkey_Click"/>
-                        </Grid>
-                        
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Translate Selection" VerticalAlignment="Center"/>
-                            <TextBox x:Name="TranslateHotkeyBox"
-                                     Grid.Column="1"
-                                     Width="130"
-                                     IsReadOnly="True"
-                                     IsTabStop="False"
-                                     Text="Alt+Shift+T"/>
-                            <Button Grid.Column="2"
-                                    Content="Record"
-                                    Width="72"
-                                    Margin="8,0,0,0"
-                                    Click="RecordTranslateHotkey_Click"/>
-                        </Grid>
-                    </StackPanel>
-                </Border>
-
-                <!-- About -->
-                <TextBlock Text="About" Style="{StaticResource SubtitleTextStyle}" Margin="0,0,0,8"/>
-                
-                <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12">
-                    <StackPanel>
-                        <TextBlock Text="RabTrans" FontWeight="SemiBold"/>
-                        <TextBlock Text="Version 3.0.0" Foreground="{StaticResource TextSecondaryBrush}"/>
-                        <TextBlock Text="A Windows text translation and OCR software" 
-                                   Foreground="{StaticResource TextSecondaryBrush}"
-                                   TextWrapping="Wrap"
-                                   Margin="0,8,0,0"/>
-                    </StackPanel>
-                </Border>
-            </StackPanel>
-        </ScrollViewer>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
 
         <!-- Footer -->
         <Border Grid.Row="2" Background="{StaticResource SurfaceBrush}" Padding="16,12">
