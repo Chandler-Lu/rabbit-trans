@@ -26,6 +26,29 @@ public class StorageService : IDisposable
         _settings = LoadSettings();
     }
 
+    public string AppDataPath => Path.GetDirectoryName(_settingsPath) ?? string.Empty;
+
+    public string SettingsPath => _settingsPath;
+
+    public string HistoryPath => _historyPath;
+
+    public void Reload()
+    {
+        _settingsLock.Wait();
+        try
+        {
+            _settings.Clear();
+            foreach (var item in LoadSettings())
+            {
+                _settings[item.Key] = item.Value.Clone();
+            }
+        }
+        finally
+        {
+            _settingsLock.Release();
+        }
+    }
+
     private Dictionary<string, JsonElement> LoadSettings()
     {
         if (!File.Exists(_settingsPath))

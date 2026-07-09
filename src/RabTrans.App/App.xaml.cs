@@ -7,6 +7,7 @@ using RabTrans.Core.Hotkey;
 using RabTrans.Core.OCR;
 using RabTrans.Core.Screenshot;
 using RabTrans.Core.Storage;
+using RabTrans.Core.Sync;
 using RabTrans.Core.Translation;
 using RabTrans.Core.Clipboard;
 using Serilog;
@@ -75,6 +76,7 @@ public partial class App : Application
         // Core services
         services.AddSingleton<StorageService>();
         services.AddSingleton<CredentialService>();
+        services.AddSingleton<ConfigSyncService>();
         
         // Feature services
         services.AddSingleton<TranslationService>();

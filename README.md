@@ -33,7 +33,8 @@ src/
 - Translation window with multiple plugin-backed translation providers.
 - OCR plugins loaded separately from translation plugins.
 - Translation history window with copy support.
-- Settings for startup, hotkeys, Node path, configuration reload, and hide-on-focus-loss behavior.
+- Settings for startup, hotkeys, Node path, interface selection, configuration reload, and sync.
+- Import/export for user settings and user plugin interfaces.
 - Local configuration and plugin files under `%LOCALAPPDATA%\RabTrans`.
 
 ## Build
@@ -64,6 +65,16 @@ Runtime data is stored in:
 %LOCALAPPDATA%\RabTrans
 ```
 
+Important files and folders:
+
+```text
+settings.json       User settings and enabled interface order
+history.jsonl       Translation history
+plugins\           User translation plugins
+ocr-plugins\       User OCR plugins
+logs\              Application logs
+```
+
 Built-in plugins are copied from:
 
 ```text
@@ -78,6 +89,21 @@ User plugins are loaded from:
 ```
 
 Plugin execution uses the configured Node executable path when provided, otherwise it falls back to `node` from `PATH`.
+
+## Backup And Sync
+
+Settings -> Sync provides local import/export.
+
+The sync package is a zip file containing:
+
+```text
+settings.json
+plugins\
+ocr-plugins\
+history.jsonl       optional
+```
+
+User translation plugins under `plugins\` and user OCR plugins under `ocr-plugins\` are always included because they define the user-configured interfaces. Translation history is optional and controlled by the `Include translation history` checkbox.
 
 ## Plugin Development
 
@@ -102,8 +128,8 @@ Common fields:
 
 Field notes:
 
-- `id`: Stable unique plugin id. Use lowercase letters, numbers, `_`, or `-`.
-- `name`: Display name shown in settings and result cards.
+- `id`: Stable unique plugin id. Use lowercase letters, numbers, `_`, or `-`. Settings displays this id.
+- `name`: Human-readable provider name shown on result cards and history records.
 - `type`: Use `translation` for translation plugins and `ocr` for OCR plugins.
 - `runtime`: Use `process`.
 - `entry`: Path to the executable script relative to the plugin folder.
@@ -207,7 +233,6 @@ my-ocr/
   "type": "ocr",
   "runtime": "process",
   "entry": "index.js",
-  "enabled": true,
   "capabilities": ["ocr.image"],
   "command": "node",
   "arguments": "{entry}"
@@ -243,6 +268,7 @@ Output expected on `stdout`:
 - User translation plugins should be copied to `%LOCALAPPDATA%\RabTrans\plugins\<id>`.
 - User OCR plugins should be copied to `%LOCALAPPDATA%\RabTrans\ocr-plugins\<id>`.
 - Use Settings -> Hot Reload after changing plugin files while the app is running.
+- Translation and OCR plugin enablement is managed in Settings -> Interfaces, not in `plugin.json`.
 
 ### Error Handling
 
@@ -251,4 +277,3 @@ Output expected on `stdout`:
 - Exit with code `0` on success.
 - Exit with a non-zero code when the plugin cannot produce a valid result.
 - The app reads plugin I/O as UTF-8, so scripts should also use UTF-8.
-

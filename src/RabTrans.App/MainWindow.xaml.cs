@@ -13,6 +13,7 @@ using RabTrans.Core.OCR;
 using RabTrans.Core.Plugins;
 using RabTrans.Core.Screenshot;
 using RabTrans.Core.Storage;
+using RabTrans.Core.Sync;
 using RabTrans.Core.Translation;
 using Serilog;
 

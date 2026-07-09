@@ -11,6 +11,7 @@ using System.Windows.Media;
 using Microsoft.Win32;
 using RabTrans.Core.OCR;
 using RabTrans.Core.Storage;
+using RabTrans.Core.Sync;
 using RabTrans.Core.Translation;
 using Serilog;
 
@@ -22,6 +23,7 @@ namespace RabTrans;
 public partial class SettingsWindow : Window
 {
     private readonly StorageService _storageService;
+    private readonly ConfigSyncService _configSyncService;
     private readonly TranslationService _translationService;
     private readonly OcrService _ocrService;
     private readonly ObservableCollection<ProviderSelectionItem> _providerItems = new();
@@ -44,6 +46,7 @@ public partial class SettingsWindow : Window
         InitializeComponent();
         
         _storageService = App.GetService<StorageService>();
+        _configSyncService = App.GetService<ConfigSyncService>();
         _translationService = App.GetService<TranslationService>();
         _ocrService = App.GetService<OcrService>();
 
@@ -89,6 +92,7 @@ public partial class SettingsWindow : Window
             AutoStartCheckBox.IsChecked = IsAutoStartEnabled() || (await _storageService.GetAsync<bool?>("auto_start") ?? false);
             MinimizeToTrayCheckBox.IsChecked = await _storageService.GetAsync<bool?>("minimize_to_tray") ?? true;
             NodePathBox.Text = await _storageService.GetAsync<string>("plugin_node_path") ?? "";
+            SyncHistoryCheckBox.IsChecked = await _storageService.GetAsync<bool?>("sync_history") ?? false;
 
             // Load translation settings
             var providers = await _storageService.GetAsync<List<string>>("enabled_translation_providers") ?? new List<string>();
@@ -140,33 +144,7 @@ public partial class SettingsWindow : Window
     {
         try
         {
-            // Save general settings
-            var autoStart = AutoStartCheckBox.IsChecked ?? false;
-            await _storageService.SetAsync("auto_start", autoStart);
-            await _storageService.SetAsync("minimize_to_tray", MinimizeToTrayCheckBox.IsChecked ?? true);
-            await _storageService.SetAsync("plugin_node_path", NodePathBox.Text.Trim());
-            SetAutoStart(autoStart);
-
-            // Save translation settings
-            var selectedProviders = _providerItems.Where(item => item.IsSelected).Select(item => item.Id).ToList();
-            if (selectedProviders.Count == 0 && _providerItems.Count > 0)
-            {
-                selectedProviders.Add(_providerItems[0].Id);
-            }
-
-            await _storageService.SetAsync("enabled_translation_providers", selectedProviders);
-
-            var selectedOcrProviders = _ocrProviderItems.Where(item => item.IsSelected).Select(item => item.Id).ToList();
-            if (selectedOcrProviders.Count == 0 && _ocrProviderItems.Count > 0)
-            {
-                selectedOcrProviders.Add(_ocrProviderItems[0].Id);
-            }
-
-            await _storageService.SetAsync("enabled_ocr_providers", selectedOcrProviders);
-            await _storageService.SetAsync("default_source_lang", GetSelectedComboBoxTag(DefaultSourceLangCombo));
-            await _storageService.SetAsync("default_target_lang", GetSelectedComboBoxTag(DefaultTargetLangCombo));
-            await _storageService.SetAsync("ocr_hotkey", OcrHotkeyBox.Text.Trim());
-            await _storageService.SetAsync("translate_hotkey", TranslateHotkeyBox.Text.Trim());
+            await SaveSettingsCoreAsync();
 
             _loadedSettingsSnapshot = CreateSettingsSnapshot();
             Log.Information("Settings saved");
@@ -179,6 +157,37 @@ public partial class SettingsWindow : Window
             Log.Error(ex, "Failed to save settings");
             MessageBox.Show($"Failed to save settings: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
         }
+    }
+
+    private async Task SaveSettingsCoreAsync()
+    {
+        var autoStart = AutoStartCheckBox.IsChecked ?? false;
+        await _storageService.SetAsync("auto_start", autoStart);
+        await _storageService.SetAsync("minimize_to_tray", MinimizeToTrayCheckBox.IsChecked ?? true);
+        await _storageService.SetAsync("plugin_node_path", NodePathBox.Text.Trim());
+        await _storageService.SetAsync("sync_history", SyncHistoryCheckBox.IsChecked ?? false);
+        SetAutoStart(autoStart);
+
+        var selectedProviders = _providerItems.Where(item => item.IsSelected).Select(item => item.Id).ToList();
+        if (selectedProviders.Count == 0 && _providerItems.Count > 0)
+        {
+            selectedProviders.Add(_providerItems[0].Id);
+        }
+
+        await _storageService.SetAsync("enabled_translation_providers", selectedProviders);
+
+        var selectedOcrProviders = _ocrProviderItems.Where(item => item.IsSelected).Select(item => item.Id).ToList();
+        if (selectedOcrProviders.Count == 0 && _ocrProviderItems.Count > 0)
+        {
+            selectedOcrProviders.Add(_ocrProviderItems[0].Id);
+        }
+
+        await _storageService.SetAsync("enabled_ocr_providers", selectedOcrProviders);
+        await _storageService.SetAsync("default_source_lang", GetSelectedComboBoxTag(DefaultSourceLangCombo));
+        await _storageService.SetAsync("default_target_lang", GetSelectedComboBoxTag(DefaultTargetLangCombo));
+        await _storageService.SetAsync("ocr_hotkey", OcrHotkeyBox.Text.Trim());
+        await _storageService.SetAsync("translate_hotkey", TranslateHotkeyBox.Text.Trim());
+        _loadedSettingsSnapshot = CreateSettingsSnapshot();
     }
 
     private static bool IsAutoStartEnabled()
@@ -306,6 +315,7 @@ public partial class SettingsWindow : Window
             (AutoStartCheckBox.IsChecked ?? false).ToString(),
             (MinimizeToTrayCheckBox.IsChecked ?? true).ToString(),
             NodePathBox.Text.Trim(),
+            (SyncHistoryCheckBox.IsChecked ?? false).ToString(),
             string.Join(",", _providerItems.Select(item => $"{item.Id}:{item.IsSelected}")),
             string.Join(",", _ocrProviderItems.Select(item => $"{item.Id}:{item.IsSelected}")),
             GetSelectedComboBoxTag(DefaultSourceLangCombo),
@@ -423,6 +433,84 @@ public partial class SettingsWindow : Window
             Log.Error(ex, "Failed to open config folder");
             MessageBox.Show($"Failed to open config folder: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
         }
+    }
+
+    private async void ExportConfigButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var dialog = new SaveFileDialog
+            {
+                Filter = "RabTrans config package (*.zip)|*.zip",
+                FileName = "RabTransConfig.zip"
+            };
+
+            if (dialog.ShowDialog(this) != true)
+            {
+                return;
+            }
+
+            await SaveSettingsCoreAsync();
+            _configSyncService.CreateConfigPackage(dialog.FileName, SyncHistoryCheckBox.IsChecked ?? false);
+            MessageBox.Show("Configuration exported.", "RabTrans", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Failed to export configuration");
+            MessageBox.Show($"Failed to export configuration: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private async void ImportConfigButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var dialog = new OpenFileDialog
+            {
+                Filter = "RabTrans config package (*.zip)|*.zip"
+            };
+
+            if (dialog.ShowDialog(this) != true || !ConfirmImport())
+            {
+                return;
+            }
+
+            ImportConfigPackage(dialog.FileName);
+            MessageBox.Show("Configuration imported.", "RabTrans", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Failed to import configuration");
+            MessageBox.Show($"Failed to import configuration: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private bool ConfirmImport()
+    {
+        return MessageBox.Show(
+            "Importing configuration will overwrite local settings and user plugins. Continue?",
+            "Import configuration",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning) == MessageBoxResult.Yes;
+    }
+
+    private void ImportConfigPackage(string packagePath)
+    {
+        _configSyncService.ImportConfigPackage(packagePath);
+        ReloadAfterConfigImport();
+    }
+
+    private void ReloadAfterConfigImport()
+    {
+        _translationService.ReloadProviders();
+        _ocrService.ReloadPlugins();
+        if (Owner is MainWindow mainWindow)
+        {
+            mainWindow.ReloadConfiguration();
+        }
+
+        PopulateInterfaceLists();
+        LoadSettings();
     }
 
     private void ReloadConfigButton_Click(object sender, RoutedEventArgs e)
