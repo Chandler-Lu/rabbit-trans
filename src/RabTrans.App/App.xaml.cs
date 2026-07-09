@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
+using System.Text;
 using Hardcodet.Wpf.TaskbarNotification;
 using Microsoft.Extensions.DependencyInjection;
 using RabTrans.Core.Hotkey;
@@ -41,7 +42,7 @@ public partial class App : Application
 
         Log.Logger = new LoggerConfiguration()
             .MinimumLevel.Debug()
-            .WriteTo.File(logPath, rollingInterval: RollingInterval.Day)
+            .WriteTo.File(logPath, rollingInterval: RollingInterval.Day, encoding: new UTF8Encoding(false))
             .CreateLogger();
 
         Log.Information("RabTrans starting...");
@@ -202,7 +203,10 @@ public partial class App : Application
             {
                 Owner = _mainWindow
             };
-            settingsWindow.ShowDialog();
+            if (settingsWindow.ShowDialog() == true)
+            {
+                _mainWindow.ReloadConfiguration();
+            }
         }));
         menu.Items.Add(CreateTrayMenuItem("Exit", (_, _) =>
         {

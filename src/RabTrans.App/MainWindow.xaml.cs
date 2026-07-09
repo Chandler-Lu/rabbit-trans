@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Diagnostics;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Interop;
@@ -9,6 +10,7 @@ using System.Windows.Threading;
 using Microsoft.Extensions.DependencyInjection;
 using RabTrans.Core.Clipboard;
 using RabTrans.Core.Hotkey;
+using RabTrans.Core.Networking;
 using RabTrans.Core.OCR;
 using RabTrans.Core.Plugins;
 using RabTrans.Core.Screenshot;
@@ -45,6 +47,8 @@ public partial class MainWindow : Window
     private string? _targetLanguageOverrideSourceLang;
     private int _translationRequestVersion;
     private Point? _lastWindowAnchorPoint;
+    private bool _keepWindowAnchoredDuringTranslation;
+    private WindowAnchorPlacement? _lastWindowAnchorPlacement;
     private readonly DispatcherTimer _widthLayoutTimer;
 
     private const int WM_HOTKEY = 0x0312;
@@ -108,6 +112,9 @@ public partial class MainWindow : Window
             Topmost = _pinWindow;
             UpdateWindowOptionButtons();
             PluginRuntimeOptions.NodeExecutablePath = _storageService?.GetAsync<string>("plugin_node_path").Result ?? string.Empty;
+            PluginRuntimeOptions.PythonExecutablePath = _storageService?.GetAsync<string>("plugin_python_path").Result ?? string.Empty;
+            NetworkProxyOptions.Mode = NetworkProxyOptions.ParseMode(_storageService?.GetAsync<string>("proxy_mode").Result);
+            NetworkProxyOptions.HttpProxy = _storageService?.GetAsync<string>("http_proxy").Result ?? string.Empty;
             _enabledProviders = _storageService?.GetAsync<List<string>>("enabled_translation_providers").Result ?? new List<string>();
             if (_enabledProviders.Count == 0 && _translationService != null)
             {
@@ -158,6 +165,7 @@ public partial class MainWindow : Window
 
     private async Task CaptureScreenshotAsync()
     {
+        var anchorPoint = TryGetCursorPoint();
         try
         {
             _screenshotService ??= App.GetService<ScreenshotService>();
@@ -199,22 +207,23 @@ public partial class MainWindow : Window
                 {
                     SetSourceText(ocrText, resetTargetLanguageOverride: true);
                     ResizeToContent(ocrText, _lastTranslationText);
-                    ShowNearCursor();
+                    ShowNearCursor(anchorPoint);
+                    _keepWindowAnchoredDuringTranslation = true;
                     await TranslateAsync();
                 }
                 else
                 {
-                    ShowNearCursor();
+                    ShowNearCursor(anchorPoint);
                     StatusText.Text = "No text recognized by OCR plugin";
                 }
             }
 
-            ShowNearCursor();
+            ShowNearCursor(anchorPoint);
         }
         catch (Exception ex)
         {
             Log.Error(ex, "Screenshot capture failed");
-            ShowNearCursor();
+            ShowNearCursor(anchorPoint);
             var message = ex.Message.Length > 140 ? ex.Message[..140] + "..." : ex.Message;
             StatusText.Text = $"OCR error: {message}";
         }
@@ -240,6 +249,7 @@ public partial class MainWindow : Window
             SetSourceText(selectedText, resetTargetLanguageOverride: true);
             ResizeToContent(selectedText, _lastTranslationText);
             ShowNearCursor(anchorPoint);
+            _keepWindowAnchoredDuringTranslation = true;
             await TranslateAsync();
             return;
         }
@@ -277,7 +287,8 @@ public partial class MainWindow : Window
         if (anchorPoint is Point point)
         {
             _lastWindowAnchorPoint = point;
-            PositionNearPoint(point);
+            _lastWindowAnchorPlacement = GetPlacementNearPoint(point);
+            PositionNearPoint(point, _lastWindowAnchorPlacement.Value);
         }
 
         Show();
@@ -304,6 +315,11 @@ public partial class MainWindow : Window
 
     private void PositionNearPoint(Point point)
     {
+        PositionNearPoint(point, GetPlacementNearPoint(point));
+    }
+
+    private void PositionNearPoint(Point point, WindowAnchorPlacement placement)
+    {
         var workArea = SystemParameters.WorkArea;
         var windowWidth = ActualWidth > 0 ? ActualWidth : Width;
         var windowHeight = ActualHeight > 0 ? ActualHeight : Height;
@@ -311,24 +327,35 @@ public partial class MainWindow : Window
         const double verticalOffset = 18;
         const double edgePadding = 8;
 
-        var nextLeft = point.X + horizontalOffset;
-        if (nextLeft + windowWidth > workArea.Right - edgePadding)
-        {
-            nextLeft = point.X - windowWidth - horizontalOffset;
-        }
+        var nextLeft = placement.PlaceRight
+            ? point.X + horizontalOffset
+            : point.X - windowWidth - horizontalOffset;
 
-        var nextTop = point.Y + verticalOffset;
-        if (nextTop + windowHeight > workArea.Bottom - edgePadding)
-        {
-            nextTop = point.Y - windowHeight - verticalOffset;
-        }
+        var nextTop = placement.PlaceBelow
+            ? point.Y + verticalOffset
+            : point.Y - windowHeight - verticalOffset;
 
         Left = Math.Clamp(nextLeft, workArea.Left + edgePadding, workArea.Right - windowWidth - edgePadding);
         Top = Math.Clamp(nextTop, workArea.Top + edgePadding, workArea.Bottom - windowHeight - edgePadding);
     }
 
+    private WindowAnchorPlacement GetPlacementNearPoint(Point point)
+    {
+        var workArea = SystemParameters.WorkArea;
+        var windowWidth = ActualWidth > 0 ? ActualWidth : Width;
+        var windowHeight = ActualHeight > 0 ? ActualHeight : Height;
+        const double horizontalOffset = 18;
+        const double verticalOffset = 18;
+        const double edgePadding = 8;
+
+        return new WindowAnchorPlacement(
+            point.X + horizontalOffset + windowWidth <= workArea.Right - edgePadding,
+            point.Y + verticalOffset + windowHeight <= workArea.Bottom - edgePadding);
+    }
+
     private async void TranslateButton_Click(object sender, RoutedEventArgs e)
     {
+        _keepWindowAnchoredDuringTranslation = false;
         await TranslateAsync();
     }
 
@@ -395,7 +422,7 @@ public partial class MainWindow : Window
                 }
 
                 results.Add(result);
-                ShowTranslationDisplayItems(results);
+                ShowTranslationDisplayItems(OrderResultsByProviderSettings(results, providers));
 
                 if (result.Success)
                 {
@@ -449,6 +476,8 @@ public partial class MainWindow : Window
             if (requestVersion == _translationRequestVersion)
             {
                 TranslateButton.IsEnabled = true;
+                _keepWindowAnchoredDuringTranslation = false;
+                _lastWindowAnchorPlacement = null;
             }
         }
     }
@@ -456,6 +485,27 @@ public partial class MainWindow : Window
     private void ShowTranslationDisplayItems(IReadOnlyList<TranslationResult> results)
     {
         ShowTranslationDisplayItems(results.Select(ToDisplayItem).ToList());
+    }
+
+    private IReadOnlyList<TranslationResult> OrderResultsByProviderSettings(
+        IReadOnlyList<TranslationResult> results,
+        IReadOnlyList<string>? orderedProviders)
+    {
+        if (orderedProviders == null || orderedProviders.Count == 0)
+        {
+            return results;
+        }
+
+        var providerOrder = orderedProviders
+            .Select((provider, index) => new { provider, index })
+            .ToDictionary(item => item.provider, item => item.index, StringComparer.OrdinalIgnoreCase);
+
+        return results
+            .Select((result, completionIndex) => new { result, completionIndex })
+            .OrderBy(item => providerOrder.TryGetValue(item.result.ProviderId, out var index) ? index : int.MaxValue)
+            .ThenBy(item => item.completionIndex)
+            .Select(item => item.result)
+            .ToList();
     }
 
     private void ShowTranslationDisplayItems(IReadOnlyList<TranslationDisplayItem> items)
@@ -537,6 +587,13 @@ public partial class MainWindow : Window
             if (adjustHeight)
             {
                 Height = Math.Clamp(chromeHeight + sourcePaneHeight + 10 + resultHeight, MinHeight, maxWindowHeight);
+            }
+
+            if (_keepWindowAnchoredDuringTranslation &&
+                _lastWindowAnchorPoint is Point anchorPoint &&
+                _lastWindowAnchorPlacement is WindowAnchorPlacement placement)
+            {
+                PositionNearPoint(anchorPoint, placement);
             }
 
             QueueResultScrollViewerLayoutSync();
@@ -991,8 +1048,12 @@ public partial class MainWindow : Window
 
         try
         {
-            SendEscape();
-            await Task.Delay(35);
+            if (ShouldSendEscapeBeforeCopy())
+            {
+                SendEscape();
+                await Task.Delay(35);
+            }
+
             SendCtrlC();
 
             for (var i = 0; i < 8; i++)
@@ -1105,8 +1166,45 @@ public partial class MainWindow : Window
         keybd_event(VK_ESCAPE, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
     }
 
+    private static bool ShouldSendEscapeBeforeCopy()
+    {
+        var processName = GetForegroundProcessName();
+        return processName is "chrome" or "msedge" or "chromium";
+    }
+
+    private static string GetForegroundProcessName()
+    {
+        try
+        {
+            var hwnd = GetForegroundWindow();
+            if (hwnd == IntPtr.Zero)
+            {
+                return string.Empty;
+            }
+
+            _ = GetWindowThreadProcessId(hwnd, out var processId);
+            if (processId == 0)
+            {
+                return string.Empty;
+            }
+
+            using var process = Process.GetProcessById((int)processId);
+            return process.ProcessName.ToLowerInvariant();
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
     [DllImport("user32.dll")]
     private static extern bool GetCursorPos(out POINT lpPoint);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 
     [DllImport("user32.dll")]
     private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
@@ -1132,3 +1230,5 @@ public class TranslationDisplayItem
     public string StatusText { get; set; } = string.Empty;
     public Brush StatusBrush { get; set; } = Brushes.SeaGreen;
 }
+
+internal readonly record struct WindowAnchorPlacement(bool PlaceRight, bool PlaceBelow);

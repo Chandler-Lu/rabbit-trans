@@ -9,7 +9,9 @@ using System.Diagnostics;
 using System.IO;
 using System.Windows.Media;
 using Microsoft.Win32;
+using RabTrans.Core.Networking;
 using RabTrans.Core.OCR;
+using RabTrans.Core.Plugins;
 using RabTrans.Core.Storage;
 using RabTrans.Core.Sync;
 using RabTrans.Core.Translation;
@@ -91,7 +93,20 @@ public partial class SettingsWindow : Window
             // Load general settings
             AutoStartCheckBox.IsChecked = IsAutoStartEnabled() || (await _storageService.GetAsync<bool?>("auto_start") ?? false);
             MinimizeToTrayCheckBox.IsChecked = await _storageService.GetAsync<bool?>("minimize_to_tray") ?? true;
-            NodePathBox.Text = await _storageService.GetAsync<string>("plugin_node_path") ?? "";
+            NodePathBox.Text = UseConfiguredOrDetectedPath(
+                await _storageService.GetAsync<string>("plugin_node_path"),
+                "node",
+                "node.exe",
+                "node.cmd",
+                "node.bat");
+            PythonPathBox.Text = UseConfiguredOrDetectedPath(
+                await _storageService.GetAsync<string>("plugin_python_path"),
+                "python",
+                "python.exe",
+                "python3.exe",
+                "py.exe");
+            SelectComboBoxItemByTag(ProxyModeCombo, await _storageService.GetAsync<string>("proxy_mode") ?? "System");
+            HttpProxyBox.Text = await _storageService.GetAsync<string>("http_proxy") ?? "";
             SyncHistoryCheckBox.IsChecked = await _storageService.GetAsync<bool?>("sync_history") ?? false;
 
             // Load translation settings
@@ -165,7 +180,12 @@ public partial class SettingsWindow : Window
         await _storageService.SetAsync("auto_start", autoStart);
         await _storageService.SetAsync("minimize_to_tray", MinimizeToTrayCheckBox.IsChecked ?? true);
         await _storageService.SetAsync("plugin_node_path", NodePathBox.Text.Trim());
+        await _storageService.SetAsync("plugin_python_path", PythonPathBox.Text.Trim());
+        await _storageService.SetAsync("proxy_mode", GetSelectedComboBoxTag(ProxyModeCombo));
+        await _storageService.SetAsync("http_proxy", HttpProxyBox.Text.Trim());
         await _storageService.SetAsync("sync_history", SyncHistoryCheckBox.IsChecked ?? false);
+        ApplyRuntimePathSettings();
+        ApplyProxySettings();
         SetAutoStart(autoStart);
 
         var selectedProviders = _providerItems.Where(item => item.IsSelected).Select(item => item.Id).ToList();
@@ -315,6 +335,9 @@ public partial class SettingsWindow : Window
             (AutoStartCheckBox.IsChecked ?? false).ToString(),
             (MinimizeToTrayCheckBox.IsChecked ?? true).ToString(),
             NodePathBox.Text.Trim(),
+            PythonPathBox.Text.Trim(),
+            GetSelectedComboBoxTag(ProxyModeCombo),
+            HttpProxyBox.Text.Trim(),
             (SyncHistoryCheckBox.IsChecked ?? false).ToString(),
             string.Join(",", _providerItems.Select(item => $"{item.Id}:{item.IsSelected}")),
             string.Join(",", _ocrProviderItems.Select(item => $"{item.Id}:{item.IsSelected}")),
@@ -336,6 +359,55 @@ public partial class SettingsWindow : Window
         }
 
         return string.IsNullOrWhiteSpace(version) ? "unknown" : version;
+    }
+
+    private void ApplyProxySettings()
+    {
+        NetworkProxyOptions.Mode = NetworkProxyOptions.ParseMode(GetSelectedComboBoxTag(ProxyModeCombo));
+        NetworkProxyOptions.HttpProxy = HttpProxyBox.Text.Trim();
+    }
+
+    private void ApplyRuntimePathSettings()
+    {
+        PluginRuntimeOptions.NodeExecutablePath = NodePathBox.Text.Trim();
+        PluginRuntimeOptions.PythonExecutablePath = PythonPathBox.Text.Trim();
+    }
+
+    private static string UseConfiguredOrDetectedPath(string? configuredPath, string fallback, params string[] executableNames)
+    {
+        return string.IsNullOrWhiteSpace(configuredPath)
+            ? ResolveExecutableFromPath(fallback, executableNames)
+            : configuredPath.Trim();
+    }
+
+    private static string ResolveExecutableFromPath(string fallback, params string[] executableNames)
+    {
+        var pathValue = Environment.GetEnvironmentVariable("PATH");
+        if (string.IsNullOrWhiteSpace(pathValue))
+        {
+            return fallback;
+        }
+
+        foreach (var directory in pathValue.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            try
+            {
+                foreach (var executableName in executableNames)
+                {
+                    var candidate = Path.Combine(directory.Trim(), executableName);
+                    if (File.Exists(candidate))
+                    {
+                        return candidate;
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore malformed PATH entries.
+            }
+        }
+
+        return fallback;
     }
 
     private void SettingsWindow_Closed(object? sender, EventArgs e)

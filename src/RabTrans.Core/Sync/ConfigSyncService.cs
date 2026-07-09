@@ -22,7 +22,6 @@ public class ConfigSyncService
         using var archive = ZipFile.Open(packagePath, ZipArchiveMode.Create);
         AddFileToArchive(archive, _storageService.SettingsPath, "settings.json");
         AddDirectoryToArchive(archive, Path.Combine(_storageService.AppDataPath, "plugins"), "plugins");
-        AddDirectoryToArchive(archive, Path.Combine(_storageService.AppDataPath, "ocr-plugins"), "ocr-plugins");
 
         if (includeHistory)
         {
@@ -38,7 +37,6 @@ public class ConfigSyncService
             ZipFile.ExtractToDirectory(packagePath, tempDir);
             CopyIfExists(Path.Combine(tempDir, "settings.json"), _storageService.SettingsPath);
             ReplaceDirectory(Path.Combine(tempDir, "plugins"), Path.Combine(_storageService.AppDataPath, "plugins"));
-            ReplaceDirectory(Path.Combine(tempDir, "ocr-plugins"), Path.Combine(_storageService.AppDataPath, "ocr-plugins"));
             CopyIfExists(Path.Combine(tempDir, "history.jsonl"), _storageService.HistoryPath);
             _storageService.Reload();
         }

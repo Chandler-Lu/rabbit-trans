@@ -20,6 +20,7 @@ src/
   RabTrans.Core/
     Clipboard/
     Hotkey/
+    Networking/
     OCR/
     Plugins/
     Screenshot/
@@ -32,8 +33,9 @@ src/
 - Global hotkeys for screenshot OCR and selected-text translation.
 - Translation window with multiple plugin-backed translation providers.
 - OCR plugins loaded separately from translation plugins.
+- Built-in local PaddleOCR plugin through the user's Python environment.
 - Translation history window with copy support.
-- Settings for startup, hotkeys, Node path, interface selection, configuration reload, and sync.
+- Settings for startup, hotkeys, Node path, proxy mode, interface selection, configuration reload, and sync.
 - Import/export for user settings and user plugin interfaces.
 - Local configuration and plugin files under `%LOCALAPPDATA%\RabTrans`.
 
@@ -44,6 +46,7 @@ Requirements:
 - Windows 10/11
 - .NET 10 SDK
 - Optional: Node.js for JavaScript process plugins
+- Optional: Python with `paddleocr` for local PaddleOCR recognition
 
 Build from the repository root:
 
@@ -68,11 +71,11 @@ Runtime data is stored in:
 Important files and folders:
 
 ```text
-settings.json       User settings and enabled interface order
-history.jsonl       Translation history
-plugins\           User translation plugins
-ocr-plugins\       User OCR plugins
-logs\              Application logs
+settings.json           User settings and enabled interface order
+history.jsonl           Translation history
+plugins\translation\   User translation plugins
+plugins\ocr\           User OCR plugins
+logs\                  Application logs
 ```
 
 Built-in plugins are copied from:
@@ -85,10 +88,31 @@ User plugins are loaded from:
 
 ```text
 %LOCALAPPDATA%\RabTrans\plugins
-%LOCALAPPDATA%\RabTrans\ocr-plugins
 ```
 
-Plugin execution uses the configured Node executable path when provided, otherwise it falls back to `node` from `PATH`.
+Plugin execution uses the configured Node/Python executable paths when provided, otherwise it falls back to `node` or `python` from `PATH`.
+
+Network proxy behavior is configured in Settings -> General:
+
+- `Use system proxy`: process plugins inherit the system proxy environment where supported.
+- `No proxy`: RabTrans clears common proxy environment variables for plugin processes.
+- `HTTP proxy`: RabTrans sets `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and lowercase variants for plugin processes.
+
+For Node.js process plugins, RabTrans also sets `NODE_USE_ENV_PROXY=1` when proxy environment variables should be used.
+
+## Local PaddleOCR
+
+RabTrans includes a built-in OCR plugin named `paddleocr_local`. It calls the Python executable configured in Settings -> General -> Runtime Paths and imports the local `paddleocr` package.
+
+Install PaddleOCR in the Python environment used by RabTrans, then enable `paddleocr_local` in Settings -> Interfaces -> OCR Services:
+
+```powershell
+pip install paddleocr
+```
+
+By default the plugin does not pass an explicit PaddleOCR inference engine. If you set `RABTRANS_PADDLEOCR_ENGINE`, install the matching inference dependency, such as `onnxruntime` for `onnxruntime` or `paddlepaddle` for Paddle engines.
+
+The plugin does not bundle PaddleOCR models or Python. PaddleOCR may download models on first use depending on your local PaddleOCR setup.
 
 ## Backup And Sync
 
@@ -99,11 +123,10 @@ The sync package is a zip file containing:
 ```text
 settings.json
 plugins\
-ocr-plugins\
 history.jsonl       optional
 ```
 
-User translation plugins under `plugins\` and user OCR plugins under `ocr-plugins\` are always included because they define the user-configured interfaces. Translation history is optional and controlled by the `Include translation history` checkbox.
+User translation plugins under `plugins\translation\` and user OCR plugins under `plugins\ocr\` are always included because they define the user-configured interfaces. Translation history is optional and controlled by the `Include translation history` checkbox.
 
 ## Plugin Development
 
@@ -263,10 +286,10 @@ Output expected on `stdout`:
 
 - Translation service selection only loads plugins with `type: "translation"`.
 - OCR only loads plugins with `type: "ocr"`.
-- Built-in translation plugins live under `src\RabTrans.App\Plugins\<id>`.
-- Built-in OCR plugins live under `src\RabTrans.App\Plugins\OCR\<id>`.
-- User translation plugins should be copied to `%LOCALAPPDATA%\RabTrans\plugins\<id>`.
-- User OCR plugins should be copied to `%LOCALAPPDATA%\RabTrans\ocr-plugins\<id>`.
+- Built-in translation plugins live under `src\RabTrans.App\Plugins\translation\<id>`.
+- Built-in OCR plugins live under `src\RabTrans.App\Plugins\ocr\<id>`.
+- User translation plugins should be copied to `%LOCALAPPDATA%\RabTrans\plugins\translation\<id>`.
+- User OCR plugins should be copied to `%LOCALAPPDATA%\RabTrans\plugins\ocr\<id>`.
 - Use Settings -> Hot Reload after changing plugin files while the app is running.
 - Translation and OCR plugin enablement is managed in Settings -> Interfaces, not in `plugin.json`.
 

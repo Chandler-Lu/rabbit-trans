@@ -30,6 +30,7 @@
                     <StackPanel Margin="0,12,0,0">
                         <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,16">
                             <StackPanel>
+                                <TextBlock Text="Configuration And System" FontWeight="SemiBold" Margin="0,0,0,8"/>
                                 <Grid Margin="0,0,0,12">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
@@ -49,6 +50,19 @@
                                             Click="ReloadConfigButton_Click"/>
                                 </Grid>
 
+                                <CheckBox x:Name="AutoStartCheckBox" 
+                                          Content="Start with Windows"
+                                          Margin="0,0,0,8"/>
+                                
+                                <CheckBox x:Name="MinimizeToTrayCheckBox" 
+                                          Content="Minimize to system tray"
+                                          IsChecked="True"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,16">
+                            <StackPanel>
+                                <TextBlock Text="Runtime Paths" FontWeight="SemiBold" Margin="0,0,0,8"/>
                                 <TextBlock Text="Node executable path" Margin="0,0,0,4"/>
                                 <TextBox x:Name="NodePathBox"
                                          Height="32"
@@ -60,15 +74,41 @@
                                          VerticalContentAlignment="Center"
                                          ToolTip="Path to node.exe for process plugins"/>
 
-                                <CheckBox x:Name="AutoStartCheckBox" 
-                                          Content="Start with Windows"
-                                          Margin="0,0,0,8"/>
-                                
-                                <CheckBox x:Name="MinimizeToTrayCheckBox" 
-                                          Content="Minimize to system tray"
-                                          IsChecked="True"
-                                          Margin="0,0,0,8"/>
+                                <TextBlock Text="Python executable path" Margin="0,0,0,4"/>
+                                <TextBox x:Name="PythonPathBox"
+                                         Height="32"
+                                         Padding="9,3"
+                                         Background="{StaticResource SurfaceBrush}"
+                                         BorderBrush="{StaticResource BorderBrush}"
+                                         BorderThickness="1"
+                                         VerticalContentAlignment="Center"
+                                         ToolTip="Path to python.exe for Python process plugins"/>
+                            </StackPanel>
+                        </Border>
 
+                        <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,16">
+                            <StackPanel>
+                                <TextBlock Text="System Proxy" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                                <TextBlock Text="Proxy mode" Margin="0,0,0,4"/>
+                                <ComboBox x:Name="ProxyModeCombo"
+                                          Height="32"
+                                          Margin="0,0,0,12"
+                                          VerticalContentAlignment="Center">
+                                    <ComboBoxItem Content="Use system proxy" Tag="System" IsSelected="True"/>
+                                    <ComboBoxItem Content="No proxy" Tag="None"/>
+                                    <ComboBoxItem Content="HTTP proxy" Tag="Http"/>
+                                </ComboBox>
+
+                                <TextBlock Text="HTTP proxy" Margin="0,0,0,4"/>
+                                <TextBox x:Name="HttpProxyBox"
+                                         Height="32"
+                                         Margin="0,0,0,12"
+                                         Padding="9,3"
+                                         Background="{StaticResource SurfaceBrush}"
+                                         BorderBrush="{StaticResource BorderBrush}"
+                                         BorderThickness="1"
+                                         VerticalContentAlignment="Center"
+                                         ToolTip="Example: http://127.0.0.1:7890"/>
                             </StackPanel>
                         </Border>
 

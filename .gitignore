@@ -78,6 +78,7 @@ Desktop.ini
 .DS_Store
 
 # Temporary files
+__pycache__/
 *.tmp
 *.temp
 *.bak

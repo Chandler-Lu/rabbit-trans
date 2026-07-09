@@ -1,0 +1,17 @@
+{
+  "id": "paddleocr_local",
+  "name": "PaddleOCR Local",
+  "type": "ocr",
+  "runtime": "process",
+  "entry": "index.py",
+  "capabilities": [ "ocr.image" ],
+  "command": "python",
+  "arguments": "{entry}",
+  "configSchema": {
+    "lang": {
+      "type": "string",
+      "label": "Language",
+      "default": "ch"
+    }
+  }
+}

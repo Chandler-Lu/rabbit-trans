@@ -1,7 +1,9 @@
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using RabTrans.Core.Networking;
 using RabTrans.Core.Plugins;
 
 namespace RabTrans.Core.OCR;
@@ -144,6 +146,8 @@ public class OcrService : IDisposable
             UseShellExecute = false,
             CreateNoWindow = true
         };
+        NetworkProxyOptions.ApplyToProcessEnvironment(startInfo);
+        PluginRuntimeOptions.ApplyCommonEnvironment(startInfo);
 
         using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Failed to start plugin process");
         await process.StandardInput.WriteAsync(input);
@@ -157,12 +161,20 @@ public class OcrService : IDisposable
 
         if (process.ExitCode != 0)
         {
+            error = StripAnsiEscapeSequences(error).Trim();
             throw new InvalidOperationException(string.IsNullOrWhiteSpace(error)
                 ? $"Plugin process exited with code {process.ExitCode}"
-                : error.Trim());
+                : error);
         }
 
         return output;
+    }
+
+    private static string StripAnsiEscapeSequences(string value)
+    {
+        return string.IsNullOrEmpty(value)
+            ? value
+            : Regex.Replace(value, @"\x1B\[[0-?]*[ -/]*[@-~]", string.Empty);
     }
 
     private static string QuoteProcessArgument(string value) => "\"" + value.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
@@ -171,11 +183,12 @@ public class OcrService : IDisposable
     {
         var pluginDirectories = new[]
         {
-            Path.Combine(AppContext.BaseDirectory, "Plugins", "OCR"),
+            Path.Combine(AppContext.BaseDirectory, "Plugins", "ocr"),
             Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "RabTrans",
-                "ocr-plugins")
+                "plugins",
+                "ocr")
         };
 
         Directory.CreateDirectory(pluginDirectories[1]);

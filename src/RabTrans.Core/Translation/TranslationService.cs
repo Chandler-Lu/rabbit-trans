@@ -1,7 +1,9 @@
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using RabTrans.Core.Networking;
 using RabTrans.Core.Plugins;
 
 namespace RabTrans.Core.Translation;
@@ -76,11 +78,12 @@ public class TranslationService : IDisposable
     {
         var pluginDirectories = new[]
         {
-            Path.Combine(AppContext.BaseDirectory, "Plugins"),
+            Path.Combine(AppContext.BaseDirectory, "Plugins", "translation"),
             Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "RabTrans",
-                "plugins")
+                "plugins",
+                "translation")
         };
 
         Directory.CreateDirectory(pluginDirectories[1]);
@@ -139,6 +142,7 @@ public class TranslationService : IDisposable
         try
         {
             var result = await provider.TranslateAsync(text, from, to);
+            result.ProviderId = _currentProvider;
             result.ProviderName = GetProviderDisplayName(_currentProvider);
             return result;
         }
@@ -206,6 +210,7 @@ public class TranslationService : IDisposable
         try
         {
             var result = await _providers[providerName].TranslateAsync(text, from, to);
+            result.ProviderId = providerName;
             result.ProviderName = displayName;
             return result;
         }
@@ -214,6 +219,7 @@ public class TranslationService : IDisposable
             return new TranslationResult
             {
                 ProviderName = displayName,
+                ProviderId = providerName,
                 Success = false,
                 SourceLanguage = from,
                 TargetLanguage = to,
@@ -269,6 +275,7 @@ public class TranslationService : IDisposable
 /// </summary>
 public class TranslationResult
 {
+    public string ProviderId { get; set; } = string.Empty;
     public string ProviderName { get; set; } = string.Empty;
     public bool Success { get; set; }
     public string TranslatedText { get; set; } = string.Empty;
@@ -386,6 +393,8 @@ public class ProcessTranslationProvider : ITranslationProvider
             UseShellExecute = false,
             CreateNoWindow = true
         };
+        NetworkProxyOptions.ApplyToProcessEnvironment(startInfo);
+        PluginRuntimeOptions.ApplyCommonEnvironment(startInfo);
 
         using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Failed to start plugin process");
         await process.StandardInput.WriteAsync(input);
@@ -399,12 +408,20 @@ public class ProcessTranslationProvider : ITranslationProvider
 
         if (process.ExitCode != 0)
         {
+            error = StripAnsiEscapeSequences(error).Trim();
             throw new InvalidOperationException(string.IsNullOrWhiteSpace(error)
                 ? $"Plugin process exited with code {process.ExitCode}"
-                : error.Trim());
+                : error);
         }
 
         return output;
+    }
+
+    private static string StripAnsiEscapeSequences(string value)
+    {
+        return string.IsNullOrEmpty(value)
+            ? value
+            : Regex.Replace(value, @"\x1B\[[0-?]*[ -/]*[@-~]", string.Empty);
     }
 
     private static string Quote(string value) => "\"" + value.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
