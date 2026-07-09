@@ -86,7 +86,6 @@ public partial class SettingsWindow : Window
         try
         {
             // Load general settings
-            ClipboardMonitorCheckBox.IsChecked = await _storageService.GetAsync<bool?>("clipboard_monitor") ?? false;
             AutoStartCheckBox.IsChecked = IsAutoStartEnabled() || (await _storageService.GetAsync<bool?>("auto_start") ?? false);
             MinimizeToTrayCheckBox.IsChecked = await _storageService.GetAsync<bool?>("minimize_to_tray") ?? true;
             NodePathBox.Text = await _storageService.GetAsync<string>("plugin_node_path") ?? "";
@@ -143,7 +142,6 @@ public partial class SettingsWindow : Window
         {
             // Save general settings
             var autoStart = AutoStartCheckBox.IsChecked ?? false;
-            await _storageService.SetAsync("clipboard_monitor", ClipboardMonitorCheckBox.IsChecked ?? false);
             await _storageService.SetAsync("auto_start", autoStart);
             await _storageService.SetAsync("minimize_to_tray", MinimizeToTrayCheckBox.IsChecked ?? true);
             await _storageService.SetAsync("plugin_node_path", NodePathBox.Text.Trim());
@@ -305,7 +303,6 @@ public partial class SettingsWindow : Window
     {
         return string.Join("\u001F", new[]
         {
-            (ClipboardMonitorCheckBox.IsChecked ?? false).ToString(),
             (AutoStartCheckBox.IsChecked ?? false).ToString(),
             (MinimizeToTrayCheckBox.IsChecked ?? true).ToString(),
             NodePathBox.Text.Trim(),

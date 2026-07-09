@@ -60,10 +60,6 @@
                                          VerticalContentAlignment="Center"
                                          ToolTip="Path to node.exe for process plugins"/>
 
-                                <CheckBox x:Name="ClipboardMonitorCheckBox" 
-                                          Content="Enable clipboard monitoring"
-                                          Margin="0,0,0,8"/>
-                                
                                 <CheckBox x:Name="AutoStartCheckBox" 
                                           Content="Start with Windows"
                                           Margin="0,0,0,8"/>

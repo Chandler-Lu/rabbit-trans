@@ -39,7 +39,6 @@ public partial class MainWindow : Window
     private bool _hideOnDeactivate;
     private bool _pinWindow;
     private bool _isOpeningChildWindow;
-    private bool _suppressClipboardMonitor;
     private bool _isSettingSourceTextProgrammatically;
     private bool _targetLanguageOverriddenByUser;
     private string? _targetLanguageOverrideSourceLang;
@@ -48,7 +47,6 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _widthLayoutTimer;
 
     private const int WM_HOTKEY = 0x0312;
-    private const int WM_CLIPBOARDUPDATE = 0x031D;
 
     public MainWindow()
     {
@@ -93,11 +91,8 @@ public partial class MainWindow : Window
 
         _hotkeyService = new HotkeyService(hwnd);
 
-        // Initialize clipboard monitor
         _clipboardMonitor = new ClipboardMonitorService(hwnd);
-        _clipboardMonitor.ClipboardChanged += ClipboardMonitor_ClipboardChanged;
         
-        // Load settings and start clipboard monitoring if enabled
         LoadSettings();
 
         Log.Information("Window initialized with hotkeys");
@@ -107,7 +102,6 @@ public partial class MainWindow : Window
     {
         try
         {
-            var clipboardEnabled = _storageService?.GetAsync<bool>("clipboard_monitor").Result ?? false;
             _hideOnDeactivate = _storageService?.GetAsync<bool>("hide_on_deactivate").Result ?? false;
             _pinWindow = _storageService?.GetAsync<bool>("pin_window").Result ?? false;
             Topmost = _pinWindow;
@@ -140,10 +134,6 @@ public partial class MainWindow : Window
 
             RegisterConfiguredHotkeys();
 
-            if (clipboardEnabled)
-            {
-                _clipboardMonitor?.Start();
-            }
         }
         catch (Exception ex)
         {
@@ -160,29 +150,9 @@ public partial class MainWindow : Window
                 handled = true;
                 break;
 
-            case WM_CLIPBOARDUPDATE:
-                _clipboardMonitor?.ProcessClipboardUpdate();
-                handled = true;
-                break;
         }
 
         return IntPtr.Zero;
-    }
-
-    private void ClipboardMonitor_ClipboardChanged(object? sender, ClipboardChangedEventArgs e)
-    {
-        if (_suppressClipboardMonitor)
-        {
-            return;
-        }
-
-        // Auto-translate clipboard text
-        Dispatcher.Invoke(async () =>
-        {
-            SetSourceText(e.Text, resetTargetLanguageOverride: true);
-            ResizeToContent(e.Text, _lastTranslationText);
-            await TranslateAsync();
-        });
     }
 
     private async Task CaptureScreenshotAsync()
@@ -1018,7 +988,6 @@ public partial class MainWindow : Window
         var previousClipboardSequence = GetClipboardSequenceNumber();
         string? selectedText = null;
 
-        _suppressClipboardMonitor = true;
         try
         {
             SendEscape();
@@ -1046,7 +1015,6 @@ public partial class MainWindow : Window
         {
             RestoreClipboardDataObject(previousClipboardData);
             await Task.Delay(80);
-            _suppressClipboardMonitor = false;
         }
 
         return selectedText;
