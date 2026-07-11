@@ -9,6 +9,7 @@ artifacts/
 AppPackages/
 BundleArtifacts/
 TestResults/
+.build/
 
 # Visual Studio / Rider / VS Code
 .vs/

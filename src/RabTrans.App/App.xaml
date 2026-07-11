@@ -77,6 +77,82 @@
                 <Setter Property="Padding" Value="0" />
                 <Setter Property="AcceptsTab" Value="True" />
             </Style>
+
+            <Style x:Key="InvisibleScrollBarButtonStyle" TargetType="RepeatButton">
+                <Setter Property="Focusable" Value="False" />
+                <Setter Property="IsTabStop" Value="False" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="RepeatButton">
+                            <Border Background="Transparent" />
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style TargetType="ScrollBar">
+                <Setter Property="Width" Value="6" />
+                <Setter Property="Height" Value="Auto" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ScrollBar">
+                            <Grid Background="Transparent"
+                                  HorizontalAlignment="Right">
+                                <Track x:Name="PART_Track"
+                                       IsDirectionReversed="True">
+                                    <Track.DecreaseRepeatButton>
+                                        <RepeatButton Command="ScrollBar.PageUpCommand"
+                                                      Style="{StaticResource InvisibleScrollBarButtonStyle}" />
+                                    </Track.DecreaseRepeatButton>
+                                    <Track.Thumb>
+                                        <Thumb x:Name="ScrollThumb"
+                                               MinHeight="34">
+                                            <Thumb.Template>
+                                                <ControlTemplate TargetType="Thumb">
+                                                    <Border x:Name="ThumbBorder"
+                                                            Width="6"
+                                                            Margin="0"
+                                                            CornerRadius="4"
+                                                            Background="#AEB7C4"
+                                                            Opacity="0.45" />
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter TargetName="ThumbBorder" Property="Opacity" Value="0.7" />
+                                                        </Trigger>
+                                                        <Trigger Property="IsDragging" Value="True">
+                                                            <Setter TargetName="ThumbBorder" Property="Background" Value="#8794A6" />
+                                                            <Setter TargetName="ThumbBorder" Property="Opacity" Value="0.9" />
+                                                        </Trigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate>
+                                            </Thumb.Template>
+                                        </Thumb>
+                                    </Track.Thumb>
+                                    <Track.IncreaseRepeatButton>
+                                        <RepeatButton Command="ScrollBar.PageDownCommand"
+                                                      Style="{StaticResource InvisibleScrollBarButtonStyle}" />
+                                    </Track.IncreaseRepeatButton>
+                                </Track>
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="Orientation" Value="Horizontal">
+                                    <Setter Property="HorizontalAlignment" Value="Stretch" />
+                                    <Setter Property="IsDirectionReversed" TargetName="PART_Track" Value="False" />
+                                    <Setter Property="MinHeight" TargetName="ScrollThumb" Value="0" />
+                                    <Setter Property="MinWidth" TargetName="ScrollThumb" Value="34" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+                <Style.Triggers>
+                    <Trigger Property="Orientation" Value="Horizontal">
+                        <Setter Property="Width" Value="Auto" />
+                        <Setter Property="Height" Value="4" />
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

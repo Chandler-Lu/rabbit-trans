@@ -52,6 +52,8 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _widthLayoutTimer;
 
     private const int WM_HOTKEY = 0x0312;
+    private const int WM_DISPLAYCHANGE = 0x007E;
+    private const uint MONITOR_DEFAULTTONEAREST = 0x00000002;
 
     public MainWindow()
     {
@@ -157,10 +159,23 @@ public partial class MainWindow : Window
                 _hotkeyService?.ProcessMessage(wParam);
                 handled = true;
                 break;
+            case WM_DISPLAYCHANGE:
+                EnsureVisibleAfterDisplayChange();
+                break;
 
         }
 
         return IntPtr.Zero;
+    }
+
+    public void EnsureVisibleAfterDisplayChange()
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            ClampToWorkArea(GetCurrentWorkArea());
+            _lastWindowAnchorPoint = null;
+            _lastWindowAnchorPlacement = null;
+        }, DispatcherPriority.Background);
     }
 
     private async Task CaptureScreenshotAsync()
@@ -320,7 +335,7 @@ public partial class MainWindow : Window
 
     private void PositionNearPoint(Point point, WindowAnchorPlacement placement)
     {
-        var workArea = SystemParameters.WorkArea;
+        var workArea = GetWorkAreaNearPoint(point);
         var windowWidth = ActualWidth > 0 ? ActualWidth : Width;
         var windowHeight = ActualHeight > 0 ? ActualHeight : Height;
         const double horizontalOffset = 18;
@@ -335,13 +350,13 @@ public partial class MainWindow : Window
             ? point.Y + verticalOffset
             : point.Y - windowHeight - verticalOffset;
 
-        Left = Math.Clamp(nextLeft, workArea.Left + edgePadding, workArea.Right - windowWidth - edgePadding);
-        Top = Math.Clamp(nextTop, workArea.Top + edgePadding, workArea.Bottom - windowHeight - edgePadding);
+        Left = ClampWithin(nextLeft, workArea.Left + edgePadding, workArea.Right - windowWidth - edgePadding);
+        Top = ClampWithin(nextTop, workArea.Top + edgePadding, workArea.Bottom - windowHeight - edgePadding);
     }
 
     private WindowAnchorPlacement GetPlacementNearPoint(Point point)
     {
-        var workArea = SystemParameters.WorkArea;
+        var workArea = GetWorkAreaNearPoint(point);
         var windowWidth = ActualWidth > 0 ? ActualWidth : Width;
         var windowHeight = ActualHeight > 0 ? ActualHeight : Height;
         const double horizontalOffset = 18;
@@ -351,6 +366,82 @@ public partial class MainWindow : Window
         return new WindowAnchorPlacement(
             point.X + horizontalOffset + windowWidth <= workArea.Right - edgePadding,
             point.Y + verticalOffset + windowHeight <= workArea.Bottom - edgePadding);
+    }
+
+    private Rect GetCurrentWorkArea()
+    {
+        var windowWidth = ActualWidth > 0 ? ActualWidth : Width;
+        var windowHeight = ActualHeight > 0 ? ActualHeight : Height;
+        return GetWorkAreaNearPoint(new Point(Left + windowWidth / 2, Top + windowHeight / 2));
+    }
+
+    private Rect GetWorkAreaNearPoint(Point point)
+    {
+        var devicePoint = ToDevicePoint(point);
+        var monitor = MonitorFromPoint(devicePoint, MONITOR_DEFAULTTONEAREST);
+        if (monitor == IntPtr.Zero)
+        {
+            return SystemParameters.WorkArea;
+        }
+
+        var monitorInfo = new MONITORINFO
+        {
+            cbSize = Marshal.SizeOf<MONITORINFO>()
+        };
+
+        if (!GetMonitorInfo(monitor, ref monitorInfo))
+        {
+            return SystemParameters.WorkArea;
+        }
+
+        var topLeft = FromDevicePoint(new Point(monitorInfo.rcWork.Left, monitorInfo.rcWork.Top));
+        var bottomRight = FromDevicePoint(new Point(monitorInfo.rcWork.Right, monitorInfo.rcWork.Bottom));
+        return new Rect(topLeft, bottomRight);
+    }
+
+    private POINT ToDevicePoint(Point point)
+    {
+        if (PresentationSource.FromVisual(this) is HwndSource source &&
+            source.CompositionTarget != null)
+        {
+            point = source.CompositionTarget.TransformToDevice.Transform(point);
+        }
+
+        return new POINT
+        {
+            X = (int)Math.Round(point.X),
+            Y = (int)Math.Round(point.Y)
+        };
+    }
+
+    private Point FromDevicePoint(Point point)
+    {
+        if (PresentationSource.FromVisual(this) is HwndSource source &&
+            source.CompositionTarget != null)
+        {
+            point = source.CompositionTarget.TransformFromDevice.Transform(point);
+        }
+
+        return point;
+    }
+
+    private void ClampToWorkArea(Rect workArea)
+    {
+        if (WindowState == WindowState.Maximized)
+        {
+            return;
+        }
+
+        var windowWidth = ActualWidth > 0 ? ActualWidth : Width;
+        var windowHeight = ActualHeight > 0 ? ActualHeight : Height;
+        const double edgePadding = 8;
+        Left = ClampWithin(Left, workArea.Left + edgePadding, workArea.Right - windowWidth - edgePadding);
+        Top = ClampWithin(Top, workArea.Top + edgePadding, workArea.Bottom - windowHeight - edgePadding);
+    }
+
+    private static double ClampWithin(double value, double min, double max)
+    {
+        return max < min ? min : Math.Clamp(value, min, max);
     }
 
     private async void TranslateButton_Click(object sender, RoutedEventArgs e)
@@ -552,7 +643,7 @@ public partial class MainWindow : Window
         _isApplyingContentLayout = true;
         try
         {
-            var workArea = SystemParameters.WorkArea;
+            var workArea = GetCurrentWorkArea();
             var targetWidth = ActualWidth > 0 ? ActualWidth : Width;
             if (adjustWidth)
             {
@@ -562,7 +653,7 @@ public partial class MainWindow : Window
                     .SelectMany(text => (text ?? string.Empty).Split(new[] { "\r\n", "\n" }, StringSplitOptions.None))
                     .DefaultIfEmpty(string.Empty)
                     .Max(line => line.Length);
-                targetWidth = Math.Clamp(360 + longestLineLength * 2.8, MinWidth, Math.Min(560, workArea.Width - 32));
+                targetWidth = Math.Clamp(360 + longestLineLength * 2.8, MinWidth, Math.Min(430, workArea.Width - 32));
                 Width = targetWidth;
             }
 
@@ -1201,6 +1292,12 @@ public partial class MainWindow : Window
     private static extern bool GetCursorPos(out POINT lpPoint);
 
     [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromPoint(POINT pt, uint dwFlags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
+
+    [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
 
     [DllImport("user32.dll")]
@@ -1220,6 +1317,24 @@ public partial class MainWindow : Window
     {
         public int X;
         public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+    private struct MONITORINFO
+    {
+        public int cbSize;
+        public RECT rcMonitor;
+        public RECT rcWork;
+        public uint dwFlags;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
     }
 }
 

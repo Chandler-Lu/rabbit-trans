@@ -1,8 +1,10 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Interop;
 using System.Text;
 using Hardcodet.Wpf.TaskbarNotification;
+using Microsoft.Win32;
 using Microsoft.Extensions.DependencyInjection;
 using RabTrans.Core.Hotkey;
 using RabTrans.Core.OCR;
@@ -123,6 +125,7 @@ public partial class App : Application
 
             // Setup system tray
             SetupSystemTray();
+            SystemEvents.DisplaySettingsChanged += SystemEvents_DisplaySettingsChanged;
 
             Log.Information("RabTrans started successfully");
         }
@@ -182,7 +185,11 @@ public partial class App : Application
 
         _trayIcon.TrayMouseDoubleClick += (_, _) => _mainWindow?.ShowInputTranslate();
 
-        var menu = new ContextMenu();
+        var menu = new ContextMenu
+        {
+            Placement = PlacementMode.MousePoint,
+            PlacementTarget = _mainWindow
+        };
         menu.Items.Add(CreateTrayMenuItem("Open Window", (_, _) => _mainWindow?.ShowInputTranslate()));
         menu.Items.Add(CreateTrayMenuItem("Screenshot Trans", async (_, _) =>
         {
@@ -219,6 +226,29 @@ public partial class App : Application
         Log.Information("System tray initialized");
     }
 
+    private void SystemEvents_DisplaySettingsChanged(object? sender, EventArgs e)
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            _mainWindow?.EnsureVisibleAfterDisplayChange();
+            RefreshTrayMenuPlacement();
+        });
+    }
+
+    private void RefreshTrayMenuPlacement()
+    {
+        if (_trayIcon?.ContextMenu is not { } menu)
+        {
+            return;
+        }
+
+        menu.IsOpen = false;
+        menu.Placement = PlacementMode.MousePoint;
+        menu.PlacementTarget = _mainWindow;
+        _trayIcon.ContextMenu = null;
+        _trayIcon.ContextMenu = menu;
+    }
+
     private static MenuItem CreateTrayMenuItem(string header, RoutedEventHandler clickHandler)
     {
         var item = new MenuItem
@@ -232,6 +262,7 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs args)
     {
         Log.Information("RabTrans shutting down...");
+        SystemEvents.DisplaySettingsChanged -= SystemEvents_DisplaySettingsChanged;
         
         // Cleanup services
         if (_serviceProvider is IDisposable disposable)
