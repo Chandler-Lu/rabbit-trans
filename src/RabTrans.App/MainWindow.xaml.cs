@@ -1,6 +1,5 @@
 using System.Windows;
 using System.Windows.Controls;
-using System.Diagnostics;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Interop;
@@ -254,10 +253,10 @@ public partial class MainWindow : Window
         ShowNearCursor();
     }
 
-    public async Task TranslateSelectionAsync(uint triggerKey = 0)
+    public async Task TranslateSelectionAsync(uint triggerKey = 0, uint triggerModifiers = 0)
     {
         var anchorPoint = TryGetCursorPoint();
-        var selectedText = await TryReadSelectedTextAsync(triggerKey);
+        var selectedText = await TryReadSelectedTextAsync(triggerKey, triggerModifiers);
 
         if (!string.IsNullOrWhiteSpace(selectedText))
         {
@@ -799,12 +798,30 @@ public partial class MainWindow : Window
 
     private void SourceText_TextChanged(object sender, TextChangedEventArgs e)
     {
+        UpdateSourceTextCount();
+
         if (!_isSettingSourceTextProgrammatically && _targetLanguageOverriddenByUser)
         {
             _targetLanguageOverrideSourceLang = null;
         }
 
         ResizeToContent(SourceTextBox.Text, _lastTranslationText);
+    }
+
+    private void UpdateSourceTextCount()
+    {
+        if (SourceTextCountText is null || SourceTextBox is null)
+        {
+            return;
+        }
+
+        SourceTextCountText.Text = $"{SourceTextBox.Text.Length} chars";
+    }
+
+    private void ClearSourceTextButton_Click(object sender, RoutedEventArgs e)
+    {
+        SourceTextBox.Clear();
+        SourceTextBox.Focus();
     }
 
     private void SetSourceText(string text, bool resetTargetLanguageOverride)
@@ -1042,7 +1059,7 @@ public partial class MainWindow : Window
             _translateHotkeyId = _hotkeyService.RegisterHotkey(
                 translateModifiers,
                 translateKey,
-                () => _ = TranslateSelectionAsync(translateKey));
+                () => _ = TranslateSelectionAsync(translateKey, translateModifiers));
         }
         else
         {
@@ -1126,9 +1143,20 @@ public partial class MainWindow : Window
         return key != 0;
     }
 
-    private async Task<string?> TryReadSelectedTextAsync(uint triggerKey = 0)
+    private async Task<string?> TryReadSelectedTextAsync(uint triggerKey = 0, uint triggerModifiers = 0)
     {
+        var targetWindow = GetForegroundWindow();
+        if (targetWindow == IntPtr.Zero)
+        {
+            return null;
+        }
+
         if (!await WaitForCopyHotkeyReleasedAsync(triggerKey))
+        {
+            return null;
+        }
+
+        if (GetForegroundWindow() != targetWindow)
         {
             return null;
         }
@@ -1139,29 +1167,23 @@ public partial class MainWindow : Window
 
         try
         {
-            if (ShouldSendEscapeBeforeCopy())
+            var firstAttempt = await TryCopySelectedTextAsync(targetWindow, previousClipboardSequence);
+            selectedText = firstAttempt.Text;
+
+            var usesAlt = (triggerModifiers & HotkeyService.MOD_ALT) != 0;
+            if (!firstAttempt.ClipboardChanged &&
+                usesAlt &&
+                GetForegroundWindow() == targetWindow)
             {
                 SendEscape();
                 await Task.Delay(35);
-            }
 
-            SendCtrlC();
-
-            for (var i = 0; i < 8; i++)
-            {
-                await Task.Delay(35);
-                if (GetClipboardSequenceNumber() == previousClipboardSequence)
+                if (GetForegroundWindow() == targetWindow)
                 {
-                    continue;
+                    var retrySequence = GetClipboardSequenceNumber();
+                    var retryAttempt = await TryCopySelectedTextAsync(targetWindow, retrySequence);
+                    selectedText = retryAttempt.Text;
                 }
-
-                var clipboardText = _clipboardMonitor?.GetClipboardText();
-                if (!string.IsNullOrWhiteSpace(clipboardText))
-                {
-                    selectedText = clipboardText;
-                }
-
-                break;
             }
         }
         finally
@@ -1171,6 +1193,32 @@ public partial class MainWindow : Window
         }
 
         return selectedText;
+    }
+
+    private async Task<(bool ClipboardChanged, string? Text)> TryCopySelectedTextAsync(
+        IntPtr targetWindow,
+        uint previousClipboardSequence)
+    {
+        if (GetForegroundWindow() != targetWindow)
+        {
+            return (false, null);
+        }
+
+        SendCtrlC();
+
+        for (var i = 0; i < 8; i++)
+        {
+            await Task.Delay(35);
+            if (GetClipboardSequenceNumber() == previousClipboardSequence)
+            {
+                continue;
+            }
+
+            var clipboardText = _clipboardMonitor?.GetClipboardText();
+            return (true, string.IsNullOrWhiteSpace(clipboardText) ? null : clipboardText);
+        }
+
+        return (false, null);
     }
 
     private static IDataObject? TryGetClipboardDataObject()
@@ -1257,37 +1305,6 @@ public partial class MainWindow : Window
         keybd_event(VK_ESCAPE, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
     }
 
-    private static bool ShouldSendEscapeBeforeCopy()
-    {
-        var processName = GetForegroundProcessName();
-        return processName is "chrome" or "msedge" or "chromium";
-    }
-
-    private static string GetForegroundProcessName()
-    {
-        try
-        {
-            var hwnd = GetForegroundWindow();
-            if (hwnd == IntPtr.Zero)
-            {
-                return string.Empty;
-            }
-
-            _ = GetWindowThreadProcessId(hwnd, out var processId);
-            if (processId == 0)
-            {
-                return string.Empty;
-            }
-
-            using var process = Process.GetProcessById((int)processId);
-            return process.ProcessName.ToLowerInvariant();
-        }
-        catch
-        {
-            return string.Empty;
-        }
-    }
-
     [DllImport("user32.dll")]
     private static extern bool GetCursorPos(out POINT lpPoint);
 
@@ -1299,9 +1316,6 @@ public partial class MainWindow : Window
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
-
-    [DllImport("user32.dll")]
-    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 
     [DllImport("user32.dll")]
     private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);

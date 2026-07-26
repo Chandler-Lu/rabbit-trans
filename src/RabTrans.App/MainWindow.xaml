@@ -162,11 +162,35 @@
                         BorderThickness="1"
                         CornerRadius="6"
                         Padding="14">
-                    <TextBox x:Name="SourceTextBox"
-                             TextWrapping="Wrap"
-                             AcceptsReturn="True"
-                             VerticalScrollBarVisibility="Auto"
-                             TextChanged="SourceText_TextChanged"/>
+                    <Grid>
+                        <TextBox x:Name="SourceTextBox"
+                                 TextWrapping="Wrap"
+                                 AcceptsReturn="True"
+                                 VerticalScrollBarVisibility="Auto"
+                                 Padding="0,0,26,24"
+                                 TextChanged="SourceText_TextChanged"/>
+
+                        <TextBlock x:Name="SourceTextCountText"
+                                   Text="0 chars"
+                                   HorizontalAlignment="Left"
+                                   VerticalAlignment="Bottom"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   FontSize="10"
+                                   Margin="0,0,0,-4"/>
+                        <StackPanel HorizontalAlignment="Right"
+                                    VerticalAlignment="Bottom"
+                                    Orientation="Horizontal"
+                                    Margin="0,0,16,-5">
+                            <Button x:Name="ClearSourceTextButton"
+                                    Content="&#xE711;"
+                                    Style="{StaticResource IconButtonStyle}"
+                                    Width="18"
+                                    Height="18"
+                                    FontSize="9"
+                                    ToolTip="Clear input"
+                                    Click="ClearSourceTextButton_Click"/>
+                        </StackPanel>
+                    </Grid>
                 </Border>
 
                 <Border Grid.Row="2"
