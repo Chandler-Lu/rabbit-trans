@@ -6,6 +6,7 @@ using System.Windows.Interop;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Threading;
+using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using RabTrans.Core.Clipboard;
 using RabTrans.Core.Hotkey;
@@ -13,6 +14,8 @@ using RabTrans.Core.Networking;
 using RabTrans.Core.OCR;
 using RabTrans.Core.Plugins;
 using RabTrans.Core.Screenshot;
+using RabTrans.Core.Selection;
+using RabTrans.Selection;
 using RabTrans.Core.Storage;
 using RabTrans.Core.Sync;
 using RabTrans.Core.Translation;
@@ -27,6 +30,8 @@ public partial class MainWindow : Window
 {
     private HotkeyService? _hotkeyService;
     private ClipboardMonitorService? _clipboardMonitor;
+    private SelectionCaptureService? _selectionCapture;
+    private WindowsSelectionCaptureBackend? _selectionBackend;
     private TranslationService? _translationService;
     private OcrService? _ocrService;
     private ScreenshotService? _screenshotService;
@@ -98,6 +103,8 @@ public partial class MainWindow : Window
         _hotkeyService = new HotkeyService(hwnd);
 
         _clipboardMonitor = new ClipboardMonitorService(hwnd);
+        _selectionBackend = new WindowsSelectionCaptureBackend(hwnd);
+        _selectionCapture = new SelectionCaptureService(_selectionBackend);
         
         LoadSettings();
 
@@ -255,20 +262,47 @@ public partial class MainWindow : Window
 
     public async Task TranslateSelectionAsync(uint triggerKey = 0, uint triggerModifiers = 0)
     {
-        var anchorPoint = TryGetCursorPoint();
-        var selectedText = await TryReadSelectedTextAsync(triggerKey, triggerModifiers);
+        if (_selectionCapture == null || _selectionBackend == null)
+            return;
 
-        if (!string.IsNullOrWhiteSpace(selectedText))
+        var anchorPoint = TryGetCursorPoint();
+        var targetWindow = _selectionBackend.ForegroundWindow;
+        var timer = Stopwatch.StartNew();
+        SelectionCaptureResult result;
+        try
+        {
+            result = await _selectionCapture.CaptureAsync(triggerKey,
+                (triggerModifiers & HotkeyService.MOD_ALT) != 0);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Selection capture failed after {ElapsedMs} ms", timer.ElapsedMilliseconds);
+            return;
+        }
+
+        Log.Debug("Selection capture {Status} in {ElapsedMs} ms", result.Status, timer.ElapsedMilliseconds);
+        if (result.Status is SelectionCaptureStatus.Busy or SelectionCaptureStatus.Cancelled ||
+            _selectionBackend.ForegroundWindow != targetWindow)
+            return;
+
+        if (result.Status == SelectionCaptureStatus.Success && result.Text is string selectedText)
         {
             SetSourceText(selectedText, resetTargetLanguageOverride: true);
-            ResizeToContent(selectedText, _lastTranslationText);
+            ShowTranslationDisplayItems(Array.Empty<TranslationDisplayItem>());
             ShowNearCursor(anchorPoint);
+            Log.Debug("Selection window shown in {ElapsedMs} ms", timer.ElapsedMilliseconds);
             _keepWindowAnchoredDuringTranslation = true;
             await TranslateAsync();
             return;
         }
 
         ShowNearCursor(anchorPoint);
+        StatusText.Text = result.Status switch
+        {
+            SelectionCaptureStatus.ClipboardUnavailable => "Clipboard is busy. Please try again.",
+            SelectionCaptureStatus.InputFailed => "Could not copy selection. Please copy and paste the text.",
+            _ => "No selected text found"
+        };
     }
 
     public void ReloadConfiguration()
@@ -1001,6 +1035,7 @@ public partial class MainWindow : Window
     private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
         // Cleanup
+        _selectionBackend?.PersistRestoredClipboard();
         _hotkeyService?.Dispose();
         _clipboardMonitor?.Dispose();
         _screenshotService?.Dispose();
@@ -1064,6 +1099,11 @@ public partial class MainWindow : Window
         else
         {
             Log.Warning("Invalid translate hotkey: {Hotkey}", translateHotkey);
+        }
+
+        if (_ocrHotkeyId < 0 || _translateHotkeyId < 0)
+        {
+            StatusText.Text = "A shortcut is unavailable. Choose another shortcut in Settings.";
         }
     }
 
@@ -1143,168 +1183,6 @@ public partial class MainWindow : Window
         return key != 0;
     }
 
-    private async Task<string?> TryReadSelectedTextAsync(uint triggerKey = 0, uint triggerModifiers = 0)
-    {
-        var targetWindow = GetForegroundWindow();
-        if (targetWindow == IntPtr.Zero)
-        {
-            return null;
-        }
-
-        if (!await WaitForCopyHotkeyReleasedAsync(triggerKey))
-        {
-            return null;
-        }
-
-        if (GetForegroundWindow() != targetWindow)
-        {
-            return null;
-        }
-
-        var previousClipboardData = TryGetClipboardDataObject();
-        var previousClipboardSequence = GetClipboardSequenceNumber();
-        string? selectedText = null;
-
-        try
-        {
-            var firstAttempt = await TryCopySelectedTextAsync(targetWindow, previousClipboardSequence);
-            selectedText = firstAttempt.Text;
-
-            var usesAlt = (triggerModifiers & HotkeyService.MOD_ALT) != 0;
-            if (!firstAttempt.ClipboardChanged &&
-                usesAlt &&
-                GetForegroundWindow() == targetWindow)
-            {
-                SendEscape();
-                await Task.Delay(35);
-
-                if (GetForegroundWindow() == targetWindow)
-                {
-                    var retrySequence = GetClipboardSequenceNumber();
-                    var retryAttempt = await TryCopySelectedTextAsync(targetWindow, retrySequence);
-                    selectedText = retryAttempt.Text;
-                }
-            }
-        }
-        finally
-        {
-            RestoreClipboardDataObject(previousClipboardData);
-            await Task.Delay(80);
-        }
-
-        return selectedText;
-    }
-
-    private async Task<(bool ClipboardChanged, string? Text)> TryCopySelectedTextAsync(
-        IntPtr targetWindow,
-        uint previousClipboardSequence)
-    {
-        if (GetForegroundWindow() != targetWindow)
-        {
-            return (false, null);
-        }
-
-        SendCtrlC();
-
-        for (var i = 0; i < 8; i++)
-        {
-            await Task.Delay(35);
-            if (GetClipboardSequenceNumber() == previousClipboardSequence)
-            {
-                continue;
-            }
-
-            var clipboardText = _clipboardMonitor?.GetClipboardText();
-            return (true, string.IsNullOrWhiteSpace(clipboardText) ? null : clipboardText);
-        }
-
-        return (false, null);
-    }
-
-    private static IDataObject? TryGetClipboardDataObject()
-    {
-        try
-        {
-            return Clipboard.GetDataObject();
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private void RestoreClipboardDataObject(IDataObject? dataObject)
-    {
-        try
-        {
-            if (dataObject != null)
-            {
-                Clipboard.SetDataObject(dataObject, true);
-            }
-            else
-            {
-                _clipboardMonitor?.ClearClipboard();
-            }
-        }
-        catch
-        {
-            _clipboardMonitor?.ClearClipboard();
-        }
-    }
-
-    private static async Task<bool> WaitForCopyHotkeyReleasedAsync(uint triggerKey)
-    {
-        const int VK_SHIFT = 0x10;
-        const int VK_CONTROL = 0x11;
-        const int VK_MENU = 0x12;
-        const int VK_LWIN = 0x5B;
-        const int VK_RWIN = 0x5C;
-
-        for (var i = 0; i < 20; i++)
-        {
-            if (!IsKeyDown(VK_SHIFT) &&
-                !IsKeyDown(VK_CONTROL) &&
-                !IsKeyDown(VK_MENU) &&
-                !IsKeyDown(VK_LWIN) &&
-                !IsKeyDown(VK_RWIN) &&
-                (triggerKey == 0 || !IsKeyDown((int)triggerKey)))
-            {
-                await Task.Delay(60);
-                return true;
-            }
-
-            await Task.Delay(25);
-        }
-
-        return false;
-    }
-
-    private static bool IsKeyDown(int virtualKey)
-    {
-        return (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
-    }
-
-    private static void SendCtrlC()
-    {
-        const byte VK_CONTROL = 0x11;
-        const byte VK_C = 0x43;
-        const uint KEYEVENTF_KEYUP = 0x0002;
-
-        keybd_event(VK_CONTROL, 0, 0, UIntPtr.Zero);
-        keybd_event(VK_C, 0, 0, UIntPtr.Zero);
-        keybd_event(VK_C, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-        keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-    }
-
-    private static void SendEscape()
-    {
-        const byte VK_ESCAPE = 0x1B;
-        const uint KEYEVENTF_KEYUP = 0x0002;
-
-        keybd_event(VK_ESCAPE, 0, 0, UIntPtr.Zero);
-        keybd_event(VK_ESCAPE, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-    }
-
     [DllImport("user32.dll")]
     private static extern bool GetCursorPos(out POINT lpPoint);
 
@@ -1313,18 +1191,6 @@ public partial class MainWindow : Window
 
     [DllImport("user32.dll", CharSet = CharSet.Auto)]
     private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
-
-    [DllImport("user32.dll")]
-    private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
-
-    [DllImport("user32.dll")]
-    private static extern short GetAsyncKeyState(int vKey);
-
-    [DllImport("user32.dll")]
-    private static extern uint GetClipboardSequenceNumber();
 
     [StructLayout(LayoutKind.Sequential)]
     private struct POINT

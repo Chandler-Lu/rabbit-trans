@@ -187,8 +187,7 @@ public partial class App : Application
 
         var menu = new ContextMenu
         {
-            Placement = PlacementMode.MousePoint,
-            PlacementTarget = _mainWindow
+            Placement = PlacementMode.MousePoint
         };
         menu.Items.Add(CreateTrayMenuItem("Open Window", (_, _) => _mainWindow?.ShowInputTranslate()));
         menu.Items.Add(CreateTrayMenuItem("Screenshot Trans", async (_, _) =>
@@ -244,7 +243,6 @@ public partial class App : Application
 
         menu.IsOpen = false;
         menu.Placement = PlacementMode.MousePoint;
-        menu.PlacementTarget = _mainWindow;
         _trayIcon.ContextMenu = null;
         _trayIcon.ContextMenu = menu;
     }

@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Serilog;
 
 namespace RabTrans.Core.Hotkey;
 
@@ -56,7 +57,8 @@ public class HotkeyService : IDisposable
         if (!RegisterHotKey(_hwnd, id, modifiers | MOD_NOREPEAT, key))
         {
             int error = Marshal.GetLastWin32Error();
-            System.Diagnostics.Debug.WriteLine($"Failed to register hotkey: {error}");
+            Log.Warning("Failed to register hotkey: modifiers {Modifiers}, key {Key}, Win32 error {Error}",
+                modifiers, key, error);
             return -1;
         }
 

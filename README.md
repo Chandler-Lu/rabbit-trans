@@ -60,6 +60,52 @@ The debug executable is emitted under:
 src\RabTrans.App\bin\Debug\net10.0-windows10.0.26100.0\win-x64\RabTrans.exe
 ```
 
+## Selection Shortcut (0.6.3)
+
+Selection capture restores the original compatibility timings: poll key release every
+25 ms, allow 60 ms for released keys to settle, read the copied text every 35 ms for
+up to eight polls per attempt, and wait 80 ms after capture/restoration before showing
+the translation window. The longer 1.5-second allowance for held shortcut keys remains.
+
+If an Alt-triggered copy produces no clipboard update, the app sends Escape, waits
+35 ms, and retries once with a fresh eight-poll response window. This recovery no longer
+depends on native menu flags: browser toolbar/menu focus may not expose those flags.
+For example, [Chrome uses Alt+E to open its menu](https://support.google.com/chrome/answer/157179).
+Escape is only sent after an unsuccessful Alt copy while the same window is foreground;
+non-Alt shortcuts do not send Escape. Late replies and temporarily empty clipboard
+formats are allowed to finish before declaring that there is no selection.
+
+Capture still retries temporary clipboard locks, ignores overlapping requests, cancels
+if you switch windows, and protects newer clipboard contents. The regression suite
+covers Alt focus with no native menu flag, a delayed second response, staged clipboard
+formats, the original settling delays, and focus changes during retry.
+
+The old clipboard is materialized before copying and restored only while the copied
+selection is still current. Failed backups do not clear the clipboard. Restored data
+is kept by the running app and persisted at normal exit. Selection text is not written
+to diagnostics; logs include copy/recovery dispatch, whether text became available,
+capture status, and time until the window is shown.
+
+Run the deterministic capture regression suite (no external test packages required):
+
+```powershell
+dotnet run --project tests\RabTrans.Selection.Tests -c Release
+```
+
+For desktop acceptance, test the shortcut from a browser, a text editor, and an Office
+document: repeated selections (including the same text), keys held for about a second,
+rapid repeated triggers, no selection, a busy clipboard, and switching windows while
+copying. Verify plain text, rich text, images, and file lists on the prior clipboard.
+Actual wake latency depends on the source application and clipboard rendering. Windows
+may block simulated input into an elevated app; in that case the window reports that
+the selection could not be copied.
+
+The capture timing/notification implementation follows the Windows documentation for
+[SendInput](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput)
+and [clipboard monitoring](https://learn.microsoft.com/en-us/windows/win32/dataxchg/using-the-clipboard).
+The distinction between physical key state and an application's input queue is described
+in [GetKeyState](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getkeystate).
+
 ## Runtime Configuration
 
 Runtime data is stored in:
