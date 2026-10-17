@@ -5,6 +5,7 @@ using System.Windows.Media;
 using System.Windows.Interop;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.Json;
 using System.Windows.Threading;
 using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
@@ -44,6 +45,9 @@ public partial class MainWindow : Window
     private bool _isUpdatingLanguageSelection;
     private bool _isApplyingContentLayout;
     private bool _hideOnDeactivate;
+    private bool _closeToTray = true;
+    private string _ocrShortcut = "Alt+Shift+S";
+    private string _translationShortcut = "Alt+Shift+T";
     private bool _pinWindow;
     private bool _isOpeningChildWindow;
     private bool _isSettingSourceTextProgrammatically;
@@ -85,6 +89,7 @@ public partial class MainWindow : Window
         {
             _storageService = App.GetService<StorageService>();
             _translationService = App.GetService<TranslationService>();
+            _ocrService = App.GetService<OcrService>();
 
             Log.Information("Services initialized");
         }
@@ -111,50 +116,71 @@ public partial class MainWindow : Window
         Log.Information("Window initialized with hotkeys");
     }
 
-    private void LoadSettings()
+    private async void LoadSettings()
     {
-        try
-        {
-            _hideOnDeactivate = _storageService?.GetAsync<bool>("hide_on_deactivate").Result ?? false;
-            _pinWindow = _storageService?.GetAsync<bool>("pin_window").Result ?? false;
-            Topmost = _pinWindow;
-            UpdateWindowOptionButtons();
-            PluginRuntimeOptions.NodeExecutablePath = _storageService?.GetAsync<string>("plugin_node_path").Result ?? string.Empty;
-            PluginRuntimeOptions.PythonExecutablePath = _storageService?.GetAsync<string>("plugin_python_path").Result ?? string.Empty;
-            NetworkProxyOptions.Mode = NetworkProxyOptions.ParseMode(_storageService?.GetAsync<string>("proxy_mode").Result);
-            NetworkProxyOptions.HttpProxy = _storageService?.GetAsync<string>("http_proxy").Result ?? string.Empty;
-            _enabledProviders = _storageService?.GetAsync<List<string>>("enabled_translation_providers").Result ?? new List<string>();
-            if (_enabledProviders.Count == 0 && _translationService != null)
-            {
-                _enabledProviders = _translationService.GetProviders().Take(1).ToList();
-            }
-
-            if (_ocrService != null)
-            {
-                _enabledOcrProviders = _storageService?.GetAsync<List<string>>("enabled_ocr_providers").Result ?? new List<string>();
-                if (_enabledOcrProviders.Count == 0)
-                {
-                    _enabledOcrProviders = _ocrService.GetProviders().Take(1).ToList();
-                }
-            }
-
-            var defaultSourceLang = _storageService?.GetAsync<string>("default_source_lang").Result ?? "auto";
-            var defaultTargetLang = _storageService?.GetAsync<string>("default_target_lang").Result ?? "zh-CN";
-            SetSelectedLanguage(SourceLanguageCombo, defaultSourceLang, allowAuto: true);
-            SetSelectedLanguage(TargetLanguageCombo, defaultTargetLang, allowAuto: false);
-
-            if (_enabledProviders.Count > 0)
-            {
-                _translationService?.SetProvider(_enabledProviders[0]);
-            }
-
-            RegisterConfiguredHotkeys();
-
-        }
+        try { await LoadSettingsAsync(); }
         catch (Exception ex)
         {
             Log.Warning(ex, "Failed to load settings");
+            StatusText.Text = "Some settings could not be applied. Open Settings to review them.";
         }
+    }
+
+    private async Task LoadSettingsAsync()
+    {
+        if (_storageService == null) return;
+        var settings = await _storageService.SnapshotAsync();
+        _hideOnDeactivate = settings.TryGetValue("hide_on_deactivate", out var hide) && hide.GetBoolean();
+        _pinWindow = settings.TryGetValue("pin_window", out var pin) && pin.GetBoolean();
+        Topmost = _pinWindow;
+        UpdateWindowOptionButtons();
+        foreach (var (key, value) in new Dictionary<string, object>
+        {
+            ["plugin_node_path"] = "", ["plugin_python_path"] = "", ["proxy_mode"] = "System", ["http_proxy"] = "",
+            ["default_source_lang"] = "auto", ["default_target_lang"] = "zh-CN",
+            ["ocr_hotkey"] = "Alt+Shift+S", ["translate_hotkey"] = "Alt+Shift+T",
+            ["enabled_translation_providers"] = _translationService?.GetProviders().Take(1).ToArray() ?? Array.Empty<string>(),
+            ["enabled_ocr_providers"] = _ocrService?.GetProviders().Take(1).ToArray() ?? Array.Empty<string>(),
+            ["close_to_tray"] = settings.TryGetValue("minimize_to_tray", out var legacy) ? legacy.GetBoolean() : true
+        }) settings.TryAdd(key, JsonSerializer.SerializeToElement(value));
+        await ApplyPreferencesAsync(settings.Where(p => p.Key is not ("ocr_hotkey" or "translate_hotkey")).ToDictionary());
+        await ApplyPreferencesAsync(settings.Where(p => p.Key is "ocr_hotkey" or "translate_hotkey").ToDictionary());
+    }
+
+    /// <summary>Apply only edited preferences; do not reload plugins or unrelated UI state.</summary>
+    public Task ApplyPreferencesAsync(IReadOnlyDictionary<string, JsonElement> values)
+    {
+        if (values.ContainsKey("ocr_hotkey") || values.ContainsKey("translate_hotkey"))
+        {
+            var ocr = values.TryGetValue("ocr_hotkey", out var o) ? o.GetString()! : _ocrShortcut;
+            var translation = values.TryGetValue("translate_hotkey", out var t) ? t.GetString()! : _translationShortcut;
+            if (!TryRegisterShortcutPair(ocr, translation))
+            {
+                TryRegisterShortcutPair(_ocrShortcut, _translationShortcut);
+                throw new InvalidOperationException("Shortcut is unavailable or duplicates another shortcut. Choose a different combination.");
+            }
+            _ocrShortcut = ocr;
+            _translationShortcut = translation;
+        }
+        if (values.TryGetValue("plugin_node_path", out var node)) PluginRuntimeOptions.NodeExecutablePath = node.GetString() ?? "";
+        if (values.TryGetValue("plugin_python_path", out var python)) PluginRuntimeOptions.PythonExecutablePath = python.GetString() ?? "";
+        if (values.TryGetValue("proxy_mode", out var proxy)) NetworkProxyOptions.Mode = NetworkProxyOptions.ParseMode(proxy.GetString());
+        if (values.TryGetValue("http_proxy", out var address)) NetworkProxyOptions.HttpProxy = address.GetString() ?? "";
+        if (values.TryGetValue("close_to_tray", out var close)) _closeToTray = close.GetBoolean();
+        if (values.TryGetValue("enabled_translation_providers", out var providers))
+        {
+            _enabledProviders = providers.Deserialize<List<string>>() ?? new();
+            if (_enabledProviders.Count > 0) _translationService?.SetProvider(_enabledProviders[0]);
+        }
+        if (values.TryGetValue("enabled_ocr_providers", out var ocrProviders)) _enabledOcrProviders = ocrProviders.Deserialize<List<string>>() ?? new();
+        _isUpdatingLanguageSelection = true;
+        try
+        {
+            if (values.TryGetValue("default_source_lang", out var source)) SetSelectedLanguage(SourceLanguageCombo, source.GetString()!, true);
+            if (values.TryGetValue("default_target_lang", out var target)) SetSelectedLanguage(TargetLanguageCombo, target.GetString()!, false);
+        }
+        finally { _isUpdatingLanguageSelection = false; }
+        return Task.CompletedTask;
     }
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -305,11 +331,11 @@ public partial class MainWindow : Window
         };
     }
 
-    public void ReloadConfiguration()
+    public async Task ReloadConfigurationAsync()
     {
         _translationService?.ReloadProviders();
         _ocrService?.ReloadPlugins();
-        LoadSettings();
+        await LoadSettingsAsync();
         StatusText.Text = "Configuration reloaded";
     }
 
@@ -936,10 +962,7 @@ public partial class MainWindow : Window
         {
             var settingsWindow = new SettingsWindow();
             settingsWindow.Owner = this;
-            if (settingsWindow.ShowDialog() == true)
-            {
-                LoadSettings();
-            }
+            settingsWindow.ShowDialog();
         }
         finally
         {
@@ -968,8 +991,8 @@ public partial class MainWindow : Window
 
     private void CloseButton_Click(object sender, RoutedEventArgs e)
     {
-        // Minimize to tray instead of closing
-        Hide();
+        if (_closeToTray) Hide();
+        else Application.Current.Shutdown();
     }
 
     private async void PinWindowButton_Click(object sender, RoutedEventArgs e)
@@ -1058,56 +1081,25 @@ public partial class MainWindow : Window
 
     private void RegisterConfiguredHotkeys()
     {
-        if (_hotkeyService == null || _storageService == null)
-        {
-            return;
-        }
-
-        _hotkeyService.UnregisterAll();
-        _ocrHotkeyId = -1;
-        _translateHotkeyId = -1;
-
-        var ocrHotkey = _storageService.GetAsync<string>("ocr_hotkey").Result;
-        if (string.IsNullOrWhiteSpace(ocrHotkey))
-        {
-            ocrHotkey = "Alt+Shift+S";
-        }
-        if (TryParseHotkey(ocrHotkey, out var ocrModifiers, out var ocrKey))
-        {
-            _ocrHotkeyId = _hotkeyService.RegisterHotkey(
-                ocrModifiers,
-                ocrKey,
-                async () => await CaptureScreenshotAsync());
-        }
-        else
-        {
-            Log.Warning("Invalid OCR hotkey: {Hotkey}", ocrHotkey);
-        }
-
-        var translateHotkey = _storageService.GetAsync<string>("translate_hotkey").Result;
-        if (string.IsNullOrWhiteSpace(translateHotkey))
-        {
-            translateHotkey = "Alt+Shift+T";
-        }
-        if (TryParseHotkey(translateHotkey, out var translateModifiers, out var translateKey))
-        {
-            _translateHotkeyId = _hotkeyService.RegisterHotkey(
-                translateModifiers,
-                translateKey,
-                () => _ = TranslateSelectionAsync(translateKey, translateModifiers));
-        }
-        else
-        {
-            Log.Warning("Invalid translate hotkey: {Hotkey}", translateHotkey);
-        }
-
-        if (_ocrHotkeyId < 0 || _translateHotkeyId < 0)
-        {
+        if (!TryRegisterShortcutPair(_ocrShortcut, _translationShortcut))
             StatusText.Text = "A shortcut is unavailable. Choose another shortcut in Settings.";
-        }
     }
 
-    private static bool TryParseHotkey(string hotkey, out uint modifiers, out uint key)
+    private bool TryRegisterShortcutPair(string ocr, string translation)
+    {
+        if (!TryParseHotkey(ocr, out var om, out var ok) ||
+            !TryParseHotkey(translation, out var tm, out var tk) || (om == tm && ok == tk)) return false;
+        if (_hotkeyService == null) return true;
+        _hotkeyService.UnregisterAll();
+        _ocrHotkeyId = _hotkeyService.RegisterHotkey(om, ok, async () => await CaptureScreenshotAsync());
+        _translateHotkeyId = _hotkeyService.RegisterHotkey(tm, tk, () => _ = TranslateSelectionAsync(tk, tm));
+        if (_ocrHotkeyId >= 0 && _translateHotkeyId >= 0) return true;
+        _hotkeyService.UnregisterAll();
+        _ocrHotkeyId = _translateHotkeyId = -1;
+        return false;
+    }
+
+    internal static bool TryParseHotkey(string hotkey, out uint modifiers, out uint key)
     {
         modifiers = 0;
         key = 0;

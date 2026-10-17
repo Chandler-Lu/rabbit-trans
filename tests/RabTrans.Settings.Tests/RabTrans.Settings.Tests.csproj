@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <UseWPF>true</UseWPF>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Platforms>x64</Platforms>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+  </PropertyGroup>
+  <ItemGroup><ProjectReference Include="../../src/RabTrans.App/RabTrans.App.csproj" /></ItemGroup>
+  <ItemGroup><Content Include="../../src/RabTrans.App/App.xaml" Link="AppResources.xaml" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
+  <ItemGroup><Content Include="../../src/RabTrans.App/Assets/RabTransIcon.ico" Link="Assets/RabTransIcon.ico" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
+</Project>

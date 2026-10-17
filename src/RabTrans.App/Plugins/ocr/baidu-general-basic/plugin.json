@@ -4,21 +4,9 @@
   "type": "ocr",
   "runtime": "process",
   "entry": "index.js",
-  "capabilities": [ "ocr.image" ],
+  "capabilities": [
+    "ocr.image"
+  ],
   "command": "node",
-  "arguments": "{entry}",
-  "configSchema": {
-    "ak": {
-      "type": "string",
-      "label": "API Key",
-      "secret": true,
-      "required": true
-    },
-    "sk": {
-      "type": "string",
-      "label": "Secret Key",
-      "secret": true,
-      "required": true
-    }
-  }
+  "arguments": "{entry}"
 }

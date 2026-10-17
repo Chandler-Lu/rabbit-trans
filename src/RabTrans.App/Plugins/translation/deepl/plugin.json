@@ -4,15 +4,9 @@
   "type": "translation",
   "runtime": "process",
   "entry": "index.js",
-  "capabilities": [ "translation.text" ],
+  "capabilities": [
+    "translation.text"
+  ],
   "command": "node",
-  "arguments": "{entry}",
-  "configSchema": {
-    "apiKey": {
-      "type": "string",
-      "label": "API Key",
-      "secret": true,
-      "required": true
-    }
-  }
+  "arguments": "{entry}"
 }

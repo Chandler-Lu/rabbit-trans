@@ -1,329 +1,228 @@
-<Window
-    x:Class="RabTrans.SettingsWindow"
-    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="Settings"
-    Width="560"
-    Height="680"
-    WindowStartupLocation="CenterOwner"
-    ResizeMode="NoResize">
-
-    <Grid Background="{StaticResource BackgroundBrush}">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
-
-        <!-- Title Bar -->
-        <Grid Grid.Row="0" Height="48" Background="{StaticResource SurfaceBrush}">
-            <TextBlock Text="Settings" 
-                       Style="{StaticResource TitleTextStyle}"
-                       Margin="16,0,0,0"
-                       VerticalAlignment="Center"/>
-        </Grid>
-
-        <!-- Settings Content -->
-        <TabControl Grid.Row="1" Margin="16">
-            <TabItem Header="General">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel Margin="0,12,0,0">
-                        <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,16">
-                            <StackPanel>
-                                <TextBlock Text="Configuration And System" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                                <Grid Margin="0,0,0,12">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Configuration files" VerticalAlignment="Center"/>
-                                    <Button Grid.Column="1"
-                                            Content="Open Folder"
-                                            MinWidth="92"
-                                            Margin="8,0,0,0"
-                                            Click="OpenConfigFolderButton_Click"/>
-                                    <Button Grid.Column="2"
-                                            Content="Hot Reload"
-                                            MinWidth="88"
-                                            Margin="8,0,0,0"
-                                            Click="ReloadConfigButton_Click"/>
-                                </Grid>
-
-                                <CheckBox x:Name="AutoStartCheckBox" 
-                                          Content="Start with Windows"
-                                          Margin="0,0,0,8"/>
-                                
-                                <CheckBox x:Name="MinimizeToTrayCheckBox" 
-                                          Content="Minimize to system tray"
-                                          IsChecked="True"/>
-                            </StackPanel>
-                        </Border>
-
-                        <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,16">
-                            <StackPanel>
-                                <TextBlock Text="Runtime Paths" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                                <TextBlock Text="Node executable path" Margin="0,0,0,4"/>
-                                <TextBox x:Name="NodePathBox"
-                                         Height="32"
-                                         Margin="0,0,0,12"
-                                         Padding="9,3"
-                                         Background="{StaticResource SurfaceBrush}"
-                                         BorderBrush="{StaticResource BorderBrush}"
-                                         BorderThickness="1"
-                                         VerticalContentAlignment="Center"
-                                         ToolTip="Path to node.exe for process plugins"/>
-
-                                <TextBlock Text="Python executable path" Margin="0,0,0,4"/>
-                                <TextBox x:Name="PythonPathBox"
-                                         Height="32"
-                                         Padding="9,3"
-                                         Background="{StaticResource SurfaceBrush}"
-                                         BorderBrush="{StaticResource BorderBrush}"
-                                         BorderThickness="1"
-                                         VerticalContentAlignment="Center"
-                                         ToolTip="Path to python.exe for Python process plugins"/>
-                            </StackPanel>
-                        </Border>
-
-                        <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,16">
-                            <StackPanel>
-                                <TextBlock Text="System Proxy" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                                <TextBlock Text="Proxy mode" Margin="0,0,0,4"/>
-                                <ComboBox x:Name="ProxyModeCombo"
-                                          Height="32"
-                                          Margin="0,0,0,12"
-                                          VerticalContentAlignment="Center">
-                                    <ComboBoxItem Content="Use system proxy" Tag="System" IsSelected="True"/>
-                                    <ComboBoxItem Content="No proxy" Tag="None"/>
-                                    <ComboBoxItem Content="HTTP proxy" Tag="Http"/>
-                                </ComboBox>
-
-                                <TextBlock Text="HTTP proxy" Margin="0,0,0,4"/>
-                                <TextBox x:Name="HttpProxyBox"
-                                         Height="32"
-                                         Margin="0,0,0,12"
-                                         Padding="9,3"
-                                         Background="{StaticResource SurfaceBrush}"
-                                         BorderBrush="{StaticResource BorderBrush}"
-                                         BorderThickness="1"
-                                         VerticalContentAlignment="Center"
-                                         ToolTip="Example: http://127.0.0.1:7890"/>
-                            </StackPanel>
-                        </Border>
-
-                        <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,16">
-                            <StackPanel>
-                                <TextBlock Text="Hotkeys" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                                <Grid Margin="0,0,0,8">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Screenshot + OCR" VerticalAlignment="Center"/>
-                                    <TextBox x:Name="OcrHotkeyBox"
-                                             Grid.Column="1"
-                                             Width="130"
-                                             IsReadOnly="True"
-                                             IsTabStop="False"
-                                             Text="Alt+Shift+S"/>
-                                    <Button Grid.Column="2"
-                                            Content="Record"
-                                            Width="72"
-                                            Margin="8,0,0,0"
-                                            Click="RecordOcrHotkey_Click"/>
-                                </Grid>
-                                
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Translate Selection" VerticalAlignment="Center"/>
-                                    <TextBox x:Name="TranslateHotkeyBox"
-                                             Grid.Column="1"
-                                             Width="130"
-                                             IsReadOnly="True"
-                                             IsTabStop="False"
-                                             Text="Alt+Shift+T"/>
-                                    <Button Grid.Column="2"
-                                            Content="Record"
-                                            Width="72"
-                                            Margin="8,0,0,0"
-                                            Click="RecordTranslateHotkey_Click"/>
-                                </Grid>
-                            </StackPanel>
-                        </Border>
-
-                        <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12">
-                            <StackPanel>
-                                <TextBlock Text="About" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                                <TextBlock Text="RabTrans" FontWeight="SemiBold"/>
-                                <TextBlock x:Name="VersionTextBlock" Foreground="{StaticResource TextSecondaryBrush}"/>
-                                <TextBlock Text="A Windows text translation and OCR software" 
-                                           Foreground="{StaticResource TextSecondaryBrush}"
-                                           TextWrapping="Wrap"
-                                           Margin="0,8,0,0"/>
-                            </StackPanel>
-                        </Border>
-                    </StackPanel>
-                </ScrollViewer>
-            </TabItem>
-
-            <TabItem Header="Interfaces">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel Margin="0,12,0,0">
-                        <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,16">
-                            <StackPanel>
-                                <TextBlock Text="Translation Services" Margin="0,0,0,4"/>
-                                <TextBlock Text="Select one or more translation services. Drag to reorder."
-                                           Foreground="{StaticResource TextSecondaryBrush}"
-                                           TextWrapping="Wrap"
-                                           Margin="0,0,0,8"/>
-                                <ListBox x:Name="ProviderListBox"
-                                         BorderBrush="{StaticResource BorderBrush}"
-                                         BorderThickness="1"
-                                         MinHeight="96"
-                                         MaxHeight="150"
-                                         AllowDrop="True"
-                                         PreviewMouseLeftButtonDown="ProviderListBox_PreviewMouseLeftButtonDown"
-                                         MouseMove="ProviderListBox_MouseMove"
-                                         DragOver="ProviderListBox_DragOver"
-                                         DragLeave="ProviderListBox_DragLeave"
-                                         Drop="ProviderListBox_Drop">
-                                    <ListBox.ItemContainerStyle>
-                                        <Style TargetType="ListBoxItem">
-                                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                        </Style>
-                                    </ListBox.ItemContainerStyle>
-                                    <ListBox.ItemTemplate>
-                                        <DataTemplate>
-                                            <Grid Margin="4">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="*"/>
-                                                    <ColumnDefinition Width="Auto"/>
-                                                </Grid.ColumnDefinitions>
-                                                <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                                                          VerticalAlignment="Center">
-                                                    <TextBlock Text="{Binding DisplayName}"/>
-                                                </CheckBox>
-                                                <TextBlock Grid.Column="1"
-                                                           Text="&#xE700;"
-                                                           FontFamily="Segoe MDL2 Assets"
-                                                           Foreground="{StaticResource TextSecondaryBrush}"
-                                                           VerticalAlignment="Center"
-                                                           Margin="8,0,2,0"
-                                                           Cursor="SizeAll"/>
-                                            </Grid>
-                                        </DataTemplate>
-                                    </ListBox.ItemTemplate>
-                                </ListBox>
-                            </StackPanel>
-                        </Border>
-
-                        <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,16">
-                            <StackPanel>
-                                <TextBlock Text="OCR Services" Margin="0,0,0,4"/>
-                                <TextBlock Text="Select one or more OCR services. Drag to set fallback order."
-                                           Foreground="{StaticResource TextSecondaryBrush}"
-                                           TextWrapping="Wrap"
-                                           Margin="0,0,0,8"/>
-                                <ListBox x:Name="OcrProviderListBox"
-                                         BorderBrush="{StaticResource BorderBrush}"
-                                         BorderThickness="1"
-                                         MinHeight="96"
-                                         MaxHeight="150"
-                                         AllowDrop="True"
-                                         PreviewMouseLeftButtonDown="ProviderListBox_PreviewMouseLeftButtonDown"
-                                         MouseMove="ProviderListBox_MouseMove"
-                                         DragOver="ProviderListBox_DragOver"
-                                         DragLeave="ProviderListBox_DragLeave"
-                                         Drop="ProviderListBox_Drop">
-                                    <ListBox.ItemContainerStyle>
-                                        <Style TargetType="ListBoxItem">
-                                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                        </Style>
-                                    </ListBox.ItemContainerStyle>
-                                    <ListBox.ItemTemplate>
-                                        <DataTemplate>
-                                            <Grid Margin="4">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="*"/>
-                                                    <ColumnDefinition Width="Auto"/>
-                                                </Grid.ColumnDefinitions>
-                                                <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                                                          VerticalAlignment="Center">
-                                                    <TextBlock Text="{Binding DisplayName}"/>
-                                                </CheckBox>
-                                                <TextBlock Grid.Column="1"
-                                                           Text="&#xE700;"
-                                                           FontFamily="Segoe MDL2 Assets"
-                                                           Foreground="{StaticResource TextSecondaryBrush}"
-                                                           VerticalAlignment="Center"
-                                                           Margin="8,0,2,0"
-                                                           Cursor="SizeAll"/>
-                                            </Grid>
-                                        </DataTemplate>
-                                    </ListBox.ItemTemplate>
-                                </ListBox>
-                            </StackPanel>
-                        </Border>
-
-                        <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12">
-                            <StackPanel>
-                                <TextBlock Text="Default Source Language" Margin="0,0,0,4"/>
-                                <ComboBox x:Name="DefaultSourceLangCombo" Margin="0,0,0,12">
-                                    <ComboBoxItem Content="Auto Detect" Tag="auto" IsSelected="True"/>
-                                    <ComboBoxItem Content="English" Tag="en"/>
-                                    <ComboBoxItem Content="Chinese" Tag="zh-CN"/>
-                                </ComboBox>
-
-                                <TextBlock Text="Default Target Language" Margin="0,0,0,4"/>
-                                <ComboBox x:Name="DefaultTargetLangCombo">
-                                    <ComboBoxItem Content="English" Tag="en"/>
-                                    <ComboBoxItem Content="Chinese" Tag="zh-CN" IsSelected="True"/>
-                                    <ComboBoxItem Content="Japanese" Tag="ja"/>
-                                    <ComboBoxItem Content="Korean" Tag="ko"/>
-                                </ComboBox>
-                            </StackPanel>
-                        </Border>
-                    </StackPanel>
-                </ScrollViewer>
-            </TabItem>
-
-            <TabItem Header="Sync">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel Margin="0,12,0,0">
-                        <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12">
-                            <StackPanel>
-                                <TextBlock Text="Import / Export" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                                <CheckBox x:Name="SyncHistoryCheckBox"
-                                          Content="Include translation history"
-                                          Margin="0,0,0,12"/>
-                                <StackPanel Orientation="Horizontal">
-                                    <Button Content="Export"
-                                            Width="86"
-                                            Click="ExportConfigButton_Click"/>
-                                    <Button Content="Import"
-                                            Width="86"
-                                            Margin="8,0,0,0"
-                                            Click="ImportConfigButton_Click"/>
-                                </StackPanel>
-                            </StackPanel>
-                        </Border>
-                    </StackPanel>
-                </ScrollViewer>
-            </TabItem>
-        </TabControl>
-
-        <!-- Footer -->
-        <Border Grid.Row="2" Background="{StaticResource SurfaceBrush}" Padding="16,12">
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                <Button Content="Cancel" Width="80" Margin="0,0,8,0" Click="CancelButton_Click"/>
-                <Button Content="Save" Style="{StaticResource PrimaryButtonStyle}" Width="80" Click="SaveButton_Click"/>
-            </StackPanel>
+<Window x:Class="RabTrans.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Settings" Width="800" Height="640" MinWidth="680" MinHeight="480"
+        FontFamily="Segoe UI" FontSize="13" Foreground="#20242C"
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResize" UseLayoutRounding="True">
+    <Window.Resources>
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#687282"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Margin" Value="0,4,0,0"/>
+        </Style>
+        <Style x:Key="SectionTitle" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Margin" Value="0,24,0,12"/>
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="MinHeight" Value="32"/>
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="Foreground" Value="#20242C"/>
+            <Setter Property="BorderBrush" Value="#DDE2EA"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value><ControlTemplate TargetType="Button">
+                    <Border x:Name="Chrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="Background" Value="#EAF0FB"/></Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="#3D7EFF"/></Trigger>
+                        <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Chrome" Property="Opacity" Value="0.45"/></Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate></Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="SmallIcon" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Width" Value="28"/><Setter Property="Height" Value="28"/>
+            <Setter Property="MinHeight" Value="28"/><Setter Property="Padding" Value="0"/>
+            <Setter Property="Background" Value="Transparent"/><Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#687282"/>
+        </Style>
+        <Style x:Key="ProviderConfigButtonStyle" TargetType="Button" BasedOn="{StaticResource SmallIcon}">
+            <Setter Property="Content" Value="&#xE713;"/><Setter Property="ToolTip" Value="Open config"/>
+            <Setter Property="AutomationProperties.Name" Value="Open config"/>
+            <Style.Triggers><DataTrigger Binding="{Binding CanConfigure}" Value="False"><Setter Property="Visibility" Value="Hidden"/></DataTrigger></Style.Triggers>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="MinHeight" Value="34"/><Setter Property="Padding" Value="9,6"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/><Setter Property="AcceptsTab" Value="False"/>
+            <Setter Property="Background" Value="White"/><Setter Property="Foreground" Value="#20242C"/>
+            <Setter Property="BorderBrush" Value="#DDE2EA"/><Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="MinHeight" Value="34"/><Setter Property="Padding" Value="8,4"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+        <Style x:Key="NavigationItem" TargetType="ListBoxItem">
+            <Setter Property="Padding" Value="10,10"/><Setter Property="Margin" Value="0,2"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem">
+                <Border x:Name="NavBorder" Padding="{TemplateBinding Padding}" CornerRadius="5" Background="Transparent" BorderThickness="1" BorderBrush="Transparent">
+                    <ContentPresenter/>
+                </Border>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="NavBorder" Property="Background" Value="#E8EDF4"/></Trigger>
+                    <Trigger Property="IsSelected" Value="True"><Setter TargetName="NavBorder" Property="Background" Value="#E6EEFF"/><Setter Property="Foreground" Value="#245ECC"/><Setter Property="FontWeight" Value="SemiBold"/></Trigger>
+                    <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="NavBorder" Property="BorderBrush" Value="#3D7EFF"/></Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
+        <Style x:Key="Services" TargetType="ListBox">
+            <Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Disabled"/>
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
+            <Setter Property="ScrollViewer.CanContentScroll" Value="False"/>
+            <Setter Property="ItemContainerStyle"><Setter.Value><Style TargetType="ListBoxItem">
+                <Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/>
+            </Style></Setter.Value></Setter>
+            <Setter Property="ItemTemplate"><Setter.Value><DataTemplate>
+                <Border BorderBrush="#E8ECF1" BorderThickness="0,0,0,1" Padding="6,8" MinHeight="48">
+                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="28"/><ColumnDefinition Width="28"/></Grid.ColumnDefinitions>
+                        <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" VerticalAlignment="Center" Margin="0,0,10,0" AutomationProperties.Name="{Binding DisplayName}"/>
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" ToolTip="{Binding DisplayName}"/>
+                            <TextBlock Text="{Binding Id}" FontSize="11" Foreground="#687282" TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+                        <Button Grid.Column="2" Style="{StaticResource ProviderConfigButtonStyle}" VerticalAlignment="Center" Click="OpenServiceConfig_Click"/>
+                        <Button Grid.Column="3" Content="&#xE700;" Style="{StaticResource SmallIcon}" VerticalAlignment="Center" Cursor="SizeAll"
+                                Tag="DragHandle" ToolTip="Drag to reorder. Alt+Up / Alt+Down also moves a service." AutomationProperties.Name="Reorder service"/>
+                    </Grid>
+                </Border>
+            </DataTemplate></Setter.Value></Setter>
+        </Style>
+    </Window.Resources>
+    <Grid Background="White">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <Border Background="#F6F7F9" BorderBrush="#E8ECF1" BorderThickness="0,0,1,0">
+            <DockPanel Margin="12,18,12,14">
+                <TextBlock DockPanel.Dock="Top" Text="Settings" FontSize="20" FontWeight="SemiBold" Margin="10,0,0,22"/>
+                <StackPanel DockPanel.Dock="Bottom" Margin="10,12,0,0"><TextBlock Text="RabTrans" FontWeight="SemiBold"/><TextBlock x:Name="VersionTextBlock" Style="{StaticResource Hint}" FontSize="11"/></StackPanel>
+                <ListBox x:Name="NavigationList" Background="Transparent" BorderThickness="0" ItemContainerStyle="{StaticResource NavigationItem}"
+                         SelectionChanged="Navigation_Changed" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBoxItem AutomationProperties.Name="General"><DockPanel><TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" VerticalAlignment="Center" Margin="0,0,9,0"/><TextBlock Text="General" FontSize="12" TextWrapping="Wrap"/></DockPanel></ListBoxItem>
+                    <ListBoxItem AutomationProperties.Name="Translation"><DockPanel><TextBlock Text="&#xE8F2;" FontFamily="Segoe MDL2 Assets" VerticalAlignment="Center" Margin="0,0,9,0"/><TextBlock Text="Translation" FontSize="12" TextWrapping="Wrap"/></DockPanel></ListBoxItem>
+                    <ListBoxItem AutomationProperties.Name="OCR"><DockPanel><TextBlock Text="&#xE722;" FontFamily="Segoe MDL2 Assets" VerticalAlignment="Center" Margin="0,0,9,0"/><TextBlock Text="OCR" FontSize="12" TextWrapping="Wrap"/></DockPanel></ListBoxItem>
+                    <ListBoxItem AutomationProperties.Name="Runtime &amp; network"><DockPanel><TextBlock Text="&#xE756;" FontFamily="Segoe MDL2 Assets" VerticalAlignment="Center" Margin="0,0,9,0"/><TextBlock Text="Runtime &amp; network" FontSize="12" TextWrapping="Wrap"/></DockPanel></ListBoxItem>
+                    <ListBoxItem AutomationProperties.Name="Backup &amp; restore"><DockPanel><TextBlock Text="&#xE896;" FontFamily="Segoe MDL2 Assets" VerticalAlignment="Center" Margin="0,0,9,0"/><TextBlock Text="Backup &amp; restore" FontSize="12" TextWrapping="Wrap"/></DockPanel></ListBoxItem>
+                </ListBox>
+            </DockPanel>
         </Border>
+        <Grid Grid.Column="1">
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+            <StackPanel Margin="28,22,28,16"><TextBlock x:Name="PageTitle" FontSize="20" FontWeight="SemiBold"/><TextBlock x:Name="PageDescription" Style="{StaticResource Hint}"/></StackPanel>
+            <ScrollViewer x:Name="PageScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <Grid x:Name="Pages" Margin="28,0,28,24">
+                    <StackPanel x:Name="GeneralPage">
+                        <TextBlock Text="Startup and window" Style="{StaticResource SectionTitle}" Margin="0,0,0,16"/>
+                        <CheckBox x:Name="AutoStartCheckBox" Content="Start with Windows" Tag="auto_start" Click="Toggle_Changed"/>
+                        <TextBlock Text="Start quietly in the system tray when you sign in." Style="{StaticResource Hint}" Margin="20,4,0,20"/>
+                        <CheckBox x:Name="CloseToTrayCheckBox" Content="Close to system tray" Tag="close_to_tray" Click="Toggle_Changed"/>
+                        <TextBlock Text="Keep RabTrans running when you close its main window. Minimize works normally." Style="{StaticResource Hint}" Margin="20,4,0,0"/>
+                        <Border BorderBrush="#E8ECF1" BorderThickness="0,1,0,0" Margin="0,28,0,0" Padding="0,20,0,0"><StackPanel>
+                            <TextBlock Text="About RabTrans" FontWeight="SemiBold" FontSize="14"/>
+                            <TextBlock Text="Selected-text translation and screenshot OCR, a shortcut away." Style="{StaticResource Hint}"/>
+                            <TextBlock Text="Your service settings and plugins are stored locally on this computer." Style="{StaticResource Hint}" Margin="0,12,0,0"/>
+                        </StackPanel></Border>
+                    </StackPanel>
+                    <StackPanel x:Name="TranslationPage" Visibility="Collapsed">
+                        <TextBlock Text="Default languages" Style="{StaticResource SectionTitle}" Margin="0,0,0,12"/>
+                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="16"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <StackPanel><TextBlock Text="Translate from" Margin="0,0,0,6"/><ComboBox x:Name="DefaultSourceLangCombo" Tag="default_source_lang" SelectionChanged="Language_Changed">
+                                <ComboBoxItem Content="Auto detect" Tag="auto"/><ComboBoxItem Content="English" Tag="en"/><ComboBoxItem Content="Chinese" Tag="zh-CN"/>
+                            </ComboBox></StackPanel>
+                            <StackPanel Grid.Column="2"><TextBlock Text="Translate to" Margin="0,0,0,6"/><ComboBox x:Name="DefaultTargetLangCombo" Tag="default_target_lang" SelectionChanged="Language_Changed">
+                                <ComboBoxItem Content="English" Tag="en"/><ComboBoxItem Content="Chinese" Tag="zh-CN"/><ComboBoxItem Content="Japanese" Tag="ja"/><ComboBoxItem Content="Korean" Tag="ko"/>
+                            </ComboBox></StackPanel>
+                        </Grid>
+                        <TextBlock Text="Translate selection shortcut" Style="{StaticResource SectionTitle}"/>
+                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <TextBox x:Name="TranslateHotkeyBox" IsReadOnly="True" LostKeyboardFocus="Hotkey_LostFocus" AutomationProperties.Name="Translate selection shortcut"/>
+                            <Button Grid.Column="1" Content="Record" Margin="8,0,0,0" Tag="translation" Click="RecordHotkey_Click"/>
+                        </Grid><TextBlock x:Name="TranslateHotkeyHint" Text="Record a shortcut. Press Esc to cancel." Style="{StaticResource Hint}"/>
+                        <Grid Margin="0,24,0,6"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <TextBlock Text="Translation services" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            <Button Grid.Column="1" Style="{StaticResource SmallIcon}" Content="&#xE72C;" Tag="translation" ToolTip="Refresh services" AutomationProperties.Name="Refresh translation services" Click="RefreshServices_Click"/>
+                        </Grid>
+                        <TextBlock Text="Enabled services run in parallel. Drag to set the result order." Style="{StaticResource Hint}" Margin="0,0,0,8"/>
+                        <ListBox x:Name="ProviderListBox" Style="{StaticResource Services}" AllowDrop="True"
+                                 PreviewMouseLeftButtonDown="ProviderListBox_PreviewMouseLeftButtonDown" MouseMove="ProviderListBox_MouseMove"
+                                 DragOver="ProviderListBox_DragOver" DragLeave="ProviderListBox_DragLeave" Drop="ProviderListBox_Drop" PreviewKeyDown="ProviderListBox_KeyDown"/>
+                        <TextBlock x:Name="TranslationServiceError" Style="{StaticResource Hint}" Foreground="#B42318" Visibility="Collapsed"/>
+                        <StackPanel x:Name="TranslationEmpty" Visibility="Collapsed" Margin="0,12,0,0"><TextBlock Text="No services found. Add a plugin to get started." Style="{StaticResource Hint}"/><Button Content="Open config folder" HorizontalAlignment="Left" Margin="0,10,0,0" Click="OpenConfigFolderButton_Click"/></StackPanel>
+                    </StackPanel>
+                    <StackPanel x:Name="OcrPage" Visibility="Collapsed">
+                        <TextBlock Text="Screenshot + OCR shortcut" Style="{StaticResource SectionTitle}" Margin="0,0,0,12"/>
+                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <TextBox x:Name="OcrHotkeyBox" IsReadOnly="True" LostKeyboardFocus="Hotkey_LostFocus" AutomationProperties.Name="Screenshot + OCR shortcut"/>
+                            <Button Grid.Column="1" Content="Record" Margin="8,0,0,0" Tag="ocr" Click="RecordHotkey_Click"/>
+                        </Grid><TextBlock x:Name="OcrHotkeyHint" Text="Record a shortcut. Press Esc to cancel." Style="{StaticResource Hint}"/>
+                        <Grid Margin="0,24,0,6"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <TextBlock Text="Recognition services" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            <Button Grid.Column="1" Style="{StaticResource SmallIcon}" Content="&#xE72C;" Tag="ocr" ToolTip="Refresh services" AutomationProperties.Name="Refresh ocr services" Click="RefreshServices_Click"/>
+                        </Grid>
+                        <TextBlock Text="Tried from top to bottom until recognition succeeds." Style="{StaticResource Hint}" Margin="0,0,0,8"/>
+                        <ListBox x:Name="OcrProviderListBox" Style="{StaticResource Services}" AllowDrop="True"
+                                 PreviewMouseLeftButtonDown="ProviderListBox_PreviewMouseLeftButtonDown" MouseMove="ProviderListBox_MouseMove"
+                                 DragOver="ProviderListBox_DragOver" DragLeave="ProviderListBox_DragLeave" Drop="ProviderListBox_Drop" PreviewKeyDown="ProviderListBox_KeyDown"/>
+                        <TextBlock x:Name="OcrServiceError" Style="{StaticResource Hint}" Foreground="#B42318" Visibility="Collapsed"/>
+                        <StackPanel x:Name="OcrEmpty" Visibility="Collapsed" Margin="0,12,0,0"><TextBlock Text="No services found. Add a plugin to get started." Style="{StaticResource Hint}"/><Button Content="Open config folder" HorizontalAlignment="Left" Margin="0,10,0,0" Click="OpenConfigFolderButton_Click"/></StackPanel>
+                    </StackPanel>
+                    <StackPanel x:Name="RuntimePage" Visibility="Collapsed">
+                        <TextBlock Text="Plugin runtimes" Style="{StaticResource SectionTitle}" Margin="0,0,0,12"/>
+                        <TextBlock Text="Leave a path blank to find the executable on PATH." Style="{StaticResource Hint}" Margin="0,0,0,16"/>
+                        <TextBlock Text="Node.js executable" Margin="0,0,0,6"/>
+                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="32"/><ColumnDefinition Width="32"/></Grid.ColumnDefinitions>
+                            <TextBox x:Name="NodePathBox" Tag="plugin_node_path" TextChanged="Path_TextChanged" LostKeyboardFocus="TextEdit_Completed" PreviewKeyDown="TextEdit_KeyDown" AutomationProperties.Name="Node.js executable"/>
+                            <Button Grid.Column="1" Style="{StaticResource SmallIcon}" Content="&#xE8B7;" Tag="Node" ToolTip="Browse executable" AutomationProperties.Name="Browse Node.js executable" Click="BrowseRuntime_Click"/>
+                            <Button Grid.Column="2" Style="{StaticResource SmallIcon}" Content="&#xE777;" Tag="Node" ToolTip="Use automatic detection" AutomationProperties.Name="Reset Node.js executable" Click="ResetRuntime_Click"/>
+                        </Grid><TextBlock x:Name="NodePathHint" Style="{StaticResource Hint}" Margin="0,5,0,18"/>
+                        <TextBlock Text="Python executable" Margin="0,0,0,6"/>
+                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="32"/><ColumnDefinition Width="32"/></Grid.ColumnDefinitions>
+                            <TextBox x:Name="PythonPathBox" Tag="plugin_python_path" TextChanged="Path_TextChanged" LostKeyboardFocus="TextEdit_Completed" PreviewKeyDown="TextEdit_KeyDown" AutomationProperties.Name="Python executable"/>
+                            <Button Grid.Column="1" Style="{StaticResource SmallIcon}" Content="&#xE8B7;" Tag="Python" ToolTip="Browse executable" AutomationProperties.Name="Browse Python executable" Click="BrowseRuntime_Click"/>
+                            <Button Grid.Column="2" Style="{StaticResource SmallIcon}" Content="&#xE777;" Tag="Python" ToolTip="Use automatic detection" AutomationProperties.Name="Reset Python executable" Click="ResetRuntime_Click"/>
+                        </Grid><TextBlock x:Name="PythonPathHint" Style="{StaticResource Hint}" Margin="0,5,0,18"/>
+                        <TextBlock Text="Network proxy" Style="{StaticResource SectionTitle}"/>
+                        <ComboBox x:Name="ProxyModeCombo" SelectionChanged="ProxyMode_Changed" AutomationProperties.Name="Proxy mode">
+                            <ComboBoxItem Content="Use system proxy" Tag="System"/><ComboBoxItem Content="No proxy" Tag="None"/><ComboBoxItem Content="HTTP proxy" Tag="Http"/>
+                        </ComboBox>
+                        <StackPanel x:Name="ProxyAddressPanel" Margin="0,14,0,0" Visibility="Collapsed">
+                            <TextBlock Text="Proxy address" Margin="0,0,0,6"/><TextBox x:Name="HttpProxyBox" Tag="http_proxy" TextChanged="Path_TextChanged" LostKeyboardFocus="TextEdit_Completed" PreviewKeyDown="TextEdit_KeyDown" AutomationProperties.Name="Proxy address"/>
+                            <TextBlock x:Name="ProxyHint" Text="Example: http://127.0.0.1:7890" Style="{StaticResource Hint}"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <StackPanel x:Name="BackupPage" Visibility="Collapsed">
+                        <TextBlock Text="Export a backup" Style="{StaticResource SectionTitle}" Margin="0,0,0,10"/>
+                        <TextBlock Text="Save your settings and service configurations to a ZIP file." Style="{StaticResource Hint}"/>
+                        <CheckBox x:Name="SyncHistoryCheckBox" Content="Include translation history" Tag="sync_history" Margin="0,16,0,14" Click="Toggle_Changed"/>
+                        <Button Content="Export backup" HorizontalAlignment="Left" Click="ExportConfigButton_Click"/>
+                        <TextBlock Text="Restore a backup" Style="{StaticResource SectionTitle}"/>
+                        <TextBlock Text="Replace local settings and plugins from a previous export. A recovery backup is created first." Style="{StaticResource Hint}" Margin="0,0,0,14"/>
+                        <Button Content="Import backup" HorizontalAlignment="Left" Click="ImportConfigButton_Click"/>
+                        <Border BorderBrush="#E8ECF1" BorderThickness="0,1,0,0" Margin="0,28,0,0" Padding="0,20,0,0"><StackPanel>
+                            <TextBlock Text="Configuration files" FontWeight="SemiBold" FontSize="14"/>
+                            <TextBlock Text="Service config.json files take effect on the next request after you save them." Style="{StaticResource Hint}" Margin="0,6,0,14"/>
+                            <Button Content="Open config folder" HorizontalAlignment="Left" Click="OpenConfigFolderButton_Click"/>
+                        </StackPanel></Border>
+                        <TextBlock x:Name="BackupStatus" Style="{StaticResource Hint}" Margin="0,18,0,0"/>
+                    </StackPanel>
+                </Grid>
+            </ScrollViewer>
+            <Border Grid.Row="2" BorderBrush="#E8ECF1" BorderThickness="0,1,0,0" Padding="24,12">
+                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBlock x:Name="SaveStatus" Text="Loading settings…" Foreground="#687282" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,12,0" AutomationProperties.LiveSetting="Polite"/>
+                    <Button x:Name="RetryButton" Grid.Column="1" Content="Retry" Visibility="Collapsed" Click="Retry_Click" Margin="0,0,8,0"/>
+                    <Button Grid.Column="2" Content="Close" MinWidth="72" Click="Close_Click"/>
+                </Grid>
+            </Border>
+        </Grid>
     </Grid>
 </Window>

@@ -15,9 +15,15 @@ public class OcrService : IDisposable
 {
     private readonly List<OcrPluginManifest> _plugins;
     private bool _disposed;
+    private readonly string _builtInPluginDirectory;
+    private readonly string _userPluginDirectory;
+    private readonly Dictionary<string, string?> _providerConfigPaths = new(StringComparer.OrdinalIgnoreCase);
 
-    public OcrService()
+    public OcrService(string? builtInPluginDirectory = null, string? userPluginDirectory = null)
     {
+        _builtInPluginDirectory = builtInPluginDirectory ?? Path.Combine(AppContext.BaseDirectory, "Plugins", "ocr");
+        _userPluginDirectory = userPluginDirectory ?? Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RabTrans", "plugins", "ocr");
         _plugins = LoadPluginManifests();
     }
 
@@ -32,6 +38,16 @@ public class OcrService : IDisposable
     {
         return _plugins.FirstOrDefault(plugin => plugin.Id.Equals(providerName, StringComparison.OrdinalIgnoreCase))?.Name
             ?? providerName;
+    }
+
+    public string? GetProviderConfigPath(string providerName) => _providerConfigPaths.GetValueOrDefault(providerName);
+
+    public string OpenProviderConfiguration(string providerName)
+    {
+        var path = GetProviderConfigPath(providerName)
+            ?? throw new InvalidOperationException("This service does not need configuration.");
+        PluginConfiguration.CreateIfMissing(path);
+        return path;
     }
 
     public void ReloadPlugins()
@@ -115,7 +131,8 @@ public class OcrService : IDisposable
             imageBase64,
             imageDataUri = $"data:image/png;base64,{imageBase64}",
             mimeType = "image/png",
-            requestId = Guid.NewGuid().ToString("N")
+            requestId = Guid.NewGuid().ToString("N"),
+            config = PluginConfiguration.Read(plugin.ConfigPath)
         });
 
         var output = await RunProcessPluginAsync(plugin, input);
@@ -179,31 +196,39 @@ public class OcrService : IDisposable
 
     private static string QuoteProcessArgument(string value) => "\"" + value.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
 
-    private static List<OcrPluginManifest> LoadPluginManifests()
+    private List<OcrPluginManifest> LoadPluginManifests()
     {
-        var pluginDirectories = new[]
+        var plugins = new Dictionary<string, OcrPluginManifest>(StringComparer.OrdinalIgnoreCase);
+        _providerConfigPaths.Clear();
+        Directory.CreateDirectory(_userPluginDirectory);
+        foreach (var directory in new[] { _builtInPluginDirectory, _userPluginDirectory }.Where(Directory.Exists))
+        foreach (var manifestPath in EnumeratePluginManifestFiles(directory))
         {
-            Path.Combine(AppContext.BaseDirectory, "Plugins", "ocr"),
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "RabTrans",
-                "plugins",
-                "ocr")
-        };
-
-        Directory.CreateDirectory(pluginDirectories[1]);
-
-        return pluginDirectories
-            .Where(Directory.Exists)
-            .SelectMany(EnumeratePluginManifestFiles)
-            .Select(TryLoadManifest)
-            .Where(manifest => manifest != null &&
-                !string.IsNullOrWhiteSpace(manifest.Id) &&
-                manifest.Type.Equals("ocr", StringComparison.OrdinalIgnoreCase) &&
-                manifest.Runtime.Equals("process", StringComparison.OrdinalIgnoreCase) &&
-                !string.IsNullOrWhiteSpace(manifest.Entry))
-            .Cast<OcrPluginManifest>()
-            .ToList();
+            var manifest = TryLoadManifest(manifestPath);
+            if (manifest == null || string.IsNullOrWhiteSpace(manifest.Id) ||
+                !manifest.Type.Equals("ocr", StringComparison.OrdinalIgnoreCase) ||
+                !manifest.Runtime.Equals("process", StringComparison.OrdinalIgnoreCase) ||
+                string.IsNullOrWhiteSpace(manifest.Entry)) continue;
+            try
+            {
+                var builtIn = directory == _builtInPluginDirectory;
+                if (builtIn && !Regex.IsMatch(manifest.Id, @"\A[a-zA-Z0-9_-]+\z")) continue;
+                var templatePath = Path.Combine(manifest.PluginDirectory, "config.json");
+                manifest.ConfigPath = builtIn
+                    ? Path.Combine(_userPluginDirectory, manifest.Id, "config.json")
+                    : templatePath;
+                if (builtIn && File.Exists(templatePath))
+                    PluginConfiguration.CreateIfMissing(manifest.ConfigPath, templatePath);
+                // User plugins override a built-in with the same id, as translation plugins do.
+                plugins[manifest.Id] = manifest;
+                _providerConfigPaths[manifest.Id] = !builtIn || File.Exists(manifest.ConfigPath) ? manifest.ConfigPath : null;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // One inaccessible plugin must not prevent other services from loading.
+            }
+        }
+        return plugins.Values.ToList();
     }
 
     private static IEnumerable<string> EnumeratePluginManifestFiles(string directory)
@@ -247,7 +272,8 @@ public class OcrPluginManifest
     public string Arguments { get; set; } = string.Empty;
     [JsonIgnore]
     public string PluginDirectory { get; set; } = string.Empty;
-    public Dictionary<string, OcrPluginConfigField> ConfigSchema { get; set; } = new();
+    [JsonIgnore]
+    public string ConfigPath { get; set; } = string.Empty;
 
     public static OcrPluginManifest? Load(string manifestPath)
     {
@@ -260,15 +286,6 @@ public class OcrPluginManifest
 
         return manifest;
     }
-}
-
-public class OcrPluginConfigField
-{
-    public string Type { get; set; } = "string";
-    public string Label { get; set; } = string.Empty;
-    public string Default { get; set; } = string.Empty;
-    public bool Secret { get; set; }
-    public bool Required { get; set; }
 }
 
 /// <summary>

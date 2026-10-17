@@ -14,9 +14,9 @@ public class StorageService : IDisposable
     private readonly Dictionary<string, JsonElement> _settings;
     private bool _disposed = false;
 
-    public StorageService()
+    public StorageService(string? appDataDirectory = null)
     {
-        var appDataPath = Path.Combine(
+        var appDataPath = appDataDirectory ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "RabTrans");
         
@@ -75,7 +75,7 @@ public class StorageService : IDisposable
     /// </summary>
     public async Task<T?> GetAsync<T>(string key)
     {
-        await _settingsLock.WaitAsync();
+        await _settingsLock.WaitAsync().ConfigureAwait(false);
         try
         {
             if (!_settings.TryGetValue(key, out var value))
@@ -94,47 +94,40 @@ public class StorageService : IDisposable
     /// <summary>
     /// Sets a value in storage.
     /// </summary>
-    public async Task SetAsync<T>(string key, T value, bool encrypt = false)
+    public Task SetAsync<T>(string key, T value, bool encrypt = false) =>
+        UpdateAsync(new Dictionary<string, JsonElement> { [key] = JsonSerializer.SerializeToElement(value) });
+
+    public Task DeleteAsync(string key) => UpdateAsync(new Dictionary<string, JsonElement>(), new[] { key });
+
+    public async Task<Dictionary<string, JsonElement>> SnapshotAsync()
     {
-        await _settingsLock.WaitAsync();
+        await _settingsLock.WaitAsync().ConfigureAwait(false);
+        try { return _settings.ToDictionary(p => p.Key, p => p.Value.Clone()); }
+        finally { _settingsLock.Release(); }
+    }
+
+    public async Task UpdateAsync(IReadOnlyDictionary<string, JsonElement> changes, IEnumerable<string>? removeKeys = null)
+    {
+        await _settingsLock.WaitAsync().ConfigureAwait(false);
+        var temporary = _settingsPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            _settings[key] = JsonSerializer.SerializeToElement(value).Clone();
-            await SaveSettingsAsync();
+            var next = _settings.ToDictionary(p => p.Key, p => p.Value.Clone());
+            if (removeKeys != null) foreach (var key in removeKeys) next.Remove(key);
+            foreach (var (key, value) in changes) next[key] = value.Clone();
+            Directory.CreateDirectory(AppDataPath);
+            var json = JsonSerializer.Serialize(next, new JsonSerializerOptions { WriteIndented = true });
+            await File.WriteAllTextAsync(temporary, json, new UTF8Encoding(false)).ConfigureAwait(false);
+            if (File.Exists(_settingsPath)) File.Replace(temporary, _settingsPath, null);
+            else File.Move(temporary, _settingsPath);
+            _settings.Clear();
+            foreach (var (key, value) in next) _settings[key] = value;
         }
         finally
         {
-            _settingsLock.Release();
+            try { if (File.Exists(temporary)) File.Delete(temporary); }
+            finally { _settingsLock.Release(); }
         }
-    }
-
-    /// <summary>
-    /// Deletes a value from storage.
-    /// </summary>
-    public async Task DeleteAsync(string key)
-    {
-        await _settingsLock.WaitAsync();
-        try
-        {
-            if (_settings.Remove(key))
-            {
-                await SaveSettingsAsync();
-            }
-        }
-        finally
-        {
-            _settingsLock.Release();
-        }
-    }
-
-    private async Task SaveSettingsAsync()
-    {
-        var options = new JsonSerializerOptions
-        {
-            WriteIndented = true
-        };
-        var json = JsonSerializer.Serialize(_settings, options);
-        await File.WriteAllTextAsync(_settingsPath, json, Encoding.UTF8);
     }
 
     /// <summary>

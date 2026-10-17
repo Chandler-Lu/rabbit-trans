@@ -4,7 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
     Title="RabTrans"
-    Icon="Assets/RabTransIcon.ico"
+    Icon="pack://siteoforigin:,,,/Assets/RabTransIcon.ico"
     Width="380" Height="390"
     MinWidth="380" MinHeight="390"
     MaxHeight="820"

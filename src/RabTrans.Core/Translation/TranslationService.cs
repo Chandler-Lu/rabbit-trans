@@ -15,12 +15,18 @@ public class TranslationService : IDisposable
 {
     private readonly Dictionary<string, ITranslationProvider> _providers;
     private readonly Dictionary<string, string> _providerDisplayNames = new();
+    private readonly Dictionary<string, string?> _providerConfigPaths = new();
+    private readonly string _builtInPluginDirectory;
+    private readonly string _userPluginDirectory;
     private string _currentProvider = "google";
     private bool _disposed = false;
 
-    public TranslationService()
+    public TranslationService(string? builtInPluginDirectory = null, string? userPluginDirectory = null)
     {
         _providers = new Dictionary<string, ITranslationProvider>();
+        _builtInPluginDirectory = builtInPluginDirectory ?? Path.Combine(AppContext.BaseDirectory, "Plugins", "translation");
+        _userPluginDirectory = userPluginDirectory ?? Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RabTrans", "plugins", "translation");
 
         LoadPluginProviders();
     }
@@ -40,6 +46,17 @@ public class TranslationService : IDisposable
     /// Gets available translation providers.
     /// </summary>
     public IReadOnlyList<string> GetProviders() => _providers.Keys.ToList();
+
+    public string? GetProviderConfigPath(string providerName) =>
+        _providerConfigPaths.GetValueOrDefault(providerName);
+
+    public string OpenProviderConfiguration(string providerName)
+    {
+        var path = GetProviderConfigPath(providerName)
+            ?? throw new InvalidOperationException("This service does not need configuration.");
+        PluginConfiguration.CreateIfMissing(path);
+        return path;
+    }
 
     public string GetProviderDisplayName(string providerName)
     {
@@ -66,6 +83,7 @@ public class TranslationService : IDisposable
     {
         _providers.Clear();
         _providerDisplayNames.Clear();
+        _providerConfigPaths.Clear();
         LoadPluginProviders();
 
         if (!_providers.ContainsKey(_currentProvider))
@@ -78,19 +96,14 @@ public class TranslationService : IDisposable
     {
         var pluginDirectories = new[]
         {
-            Path.Combine(AppContext.BaseDirectory, "Plugins", "translation"),
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "RabTrans",
-                "plugins",
-                "translation")
+            _builtInPluginDirectory,
+            _userPluginDirectory
         };
 
         Directory.CreateDirectory(pluginDirectories[1]);
 
-        foreach (var manifestPath in pluginDirectories
-            .Where(Directory.Exists)
-            .SelectMany(EnumeratePluginManifestFiles))
+        foreach (var directory in pluginDirectories.Where(Directory.Exists))
+        foreach (var manifestPath in EnumeratePluginManifestFiles(directory))
         {
             try
             {
@@ -106,7 +119,19 @@ public class TranslationService : IDisposable
                 if (manifest.Runtime.Equals("process", StringComparison.OrdinalIgnoreCase) &&
                     !string.IsNullOrWhiteSpace(manifest.Entry))
                 {
-                    RegisterProvider(manifest.Id, manifest.Name, new ProcessTranslationProvider(manifest));
+                    var builtIn = directory == _builtInPluginDirectory;
+                    // Built-in ids become directory names; never allow them to escape the config root.
+                    if (builtIn && !Regex.IsMatch(manifest.Id, @"\A[a-zA-Z0-9_-]+\z")) continue;
+                    var templatePath = Path.Combine(manifest.PluginDirectory, "config.json");
+                    var configPath = builtIn
+                        ? Path.Combine(_userPluginDirectory, manifest.Id, "config.json")
+                        : templatePath;
+                    if (builtIn && File.Exists(templatePath))
+                    {
+                        PluginConfiguration.CreateIfMissing(configPath, templatePath);
+                    }
+                    RegisterProvider(manifest.Id, manifest.Name, new ProcessTranslationProvider(manifest, configPath));
+                    _providerConfigPaths[manifest.Id] = !builtIn || File.Exists(configPath) ? configPath : null;
                 }
             }
             catch
@@ -304,7 +329,6 @@ public class TranslationPluginManifest
     public string Arguments { get; set; } = string.Empty;
     [JsonIgnore]
     public string PluginDirectory { get; set; } = string.Empty;
-    public Dictionary<string, PluginConfigField> ConfigSchema { get; set; } = new();
 
     public static TranslationPluginManifest? Load(string manifestPath)
     {
@@ -319,22 +343,15 @@ public class TranslationPluginManifest
     }
 }
 
-public class PluginConfigField
-{
-    public string Type { get; set; } = "string";
-    public string Label { get; set; } = string.Empty;
-    public string Default { get; set; } = string.Empty;
-    public bool Secret { get; set; }
-    public bool Required { get; set; }
-}
-
 public class ProcessTranslationProvider : ITranslationProvider
 {
     private readonly TranslationPluginManifest _manifest;
+    private readonly string _configPath;
 
-    public ProcessTranslationProvider(TranslationPluginManifest manifest)
+    public ProcessTranslationProvider(TranslationPluginManifest manifest, string configPath)
     {
         _manifest = manifest;
+        _configPath = configPath;
     }
 
     public async Task<TranslationResult> TranslateAsync(string text, string from, string to)
@@ -345,7 +362,8 @@ public class ProcessTranslationProvider : ITranslationProvider
             text,
             from,
             to,
-            requestId = Guid.NewGuid().ToString("N")
+            requestId = Guid.NewGuid().ToString("N"),
+            config = PluginConfiguration.Read(_configPath)
         });
 
         var output = await RunProcessAsync(input);

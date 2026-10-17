@@ -1,215 +1,524 @@
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.IO;
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.ComponentModel;
-using System.Collections.ObjectModel;
-using System.Runtime.CompilerServices;
-using System.Reflection;
-using System.Diagnostics;
-using System.IO;
+using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Microsoft.Win32;
-using RabTrans.Core.Networking;
 using RabTrans.Core.OCR;
-using RabTrans.Core.Plugins;
+using RabTrans.Core.Settings;
 using RabTrans.Core.Storage;
 using RabTrans.Core.Sync;
 using RabTrans.Core.Translation;
-using Serilog;
 
 namespace RabTrans;
 
-/// <summary>
-/// Settings window for RabTrans.
-/// </summary>
 public partial class SettingsWindow : Window
 {
     private readonly StorageService _storageService;
     private readonly ConfigSyncService _configSyncService;
     private readonly TranslationService _translationService;
     private readonly OcrService _ocrService;
+    private readonly Func<IReadOnlyDictionary<string, JsonElement>, Task>? _runtimeOverride;
     private readonly ObservableCollection<ProviderSelectionItem> _providerItems = new();
     private readonly ObservableCollection<ProviderSelectionItem> _ocrProviderItems = new();
+    private readonly DispatcherTimer _editTimer = new() { Interval = TimeSpan.FromMilliseconds(600) };
+    private readonly HashSet<string> _textDirty = new();
+    private readonly Dictionary<string, string> _errors = new();
+    private SettingsAutoSaveSession? _session;
+    private bool _loading = true, _busy, _closing, _allowClose, _closed, _proxyDirty;
     private TextBox? _recordingHotkeyBox;
+    private string _recordingOriginal = "";
     private Point? _providerDragStartPoint;
+    private ListBox? _dragSource;
     private ListBoxItem? _providerDropContainer;
     private bool _providerDropAfter;
-    private bool _hotkeysSuspendedForRecording;
-    private bool _settingsLoaded;
-    private string _loadedSettingsSnapshot = string.Empty;
     private const string AutoStartValueName = "RabTrans";
     private const string AutoStartRunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
-    private static readonly string ConfigDirectory = System.IO.Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "RabTrans");
+    private static readonly string[] PageNames = { "General", "Translation", "OCR", "Runtime & network", "Backup & restore" };
+    private static readonly string[] PageDescriptions = {
+        "Make RabTrans fit your workflow.", "Choose your languages and translation services.",
+        "Set up screenshot recognition and its fallback order.", "Choose how your service plugins run and connect.",
+        "Keep a copy of your settings and service configurations." };
 
-    public SettingsWindow()
+    public SettingsWindow() : this(App.GetService<StorageService>(), App.GetService<TranslationService>(), App.GetService<OcrService>()) { }
+
+    // Injectable services keep desktop verification isolated from the user's settings and startup registry.
+    public SettingsWindow(StorageService storage, TranslationService translation, OcrService ocr,
+        Func<IReadOnlyDictionary<string, JsonElement>, Task>? applyRuntime = null)
     {
+        _storageService = storage;
+        _configSyncService = new ConfigSyncService(storage);
+        _translationService = translation;
+        _ocrService = ocr;
+        _runtimeOverride = applyRuntime;
         InitializeComponent();
-        
-        _storageService = App.GetService<StorageService>();
-        _configSyncService = App.GetService<ConfigSyncService>();
-        _translationService = App.GetService<TranslationService>();
-        _ocrService = App.GetService<OcrService>();
-
-        VersionTextBlock.Text = $"Version {GetAppVersion()}";
-        PopulateInterfaceLists();
-        LoadSettings();
+        VersionTextBlock.Text = "Version " + (typeof(App).Assembly.GetName().Version?.ToString(3) ?? "");
+        NavigationList.SelectedIndex = 0;
+        _editTimer.Tick += async (_, _) => { _editTimer.Stop(); await CommitTextEditsAsync(); };
+        Loaded += async (_, _) => { FitToMonitor(); await LoadSettingsAsync(); };
+        DpiChanged += (_, _) => Dispatcher.BeginInvoke(FitToMonitor);
         PreviewKeyDown += SettingsWindow_PreviewKeyDown;
-        Closed += SettingsWindow_Closed;
+        Closing += SettingsWindow_Closing;
+        Closed += (_, _) => { _closed = true; _editTimer.Stop(); CancelRecording(); };
     }
 
-    private void PopulateInterfaceLists()
+    private static JsonElement Json(object? value) => JsonSerializer.SerializeToElement(value);
+    private static T Get<T>(IReadOnlyDictionary<string, JsonElement> values, string key, T fallback) =>
+        values.TryGetValue(key, out var value) && value.ValueKind != JsonValueKind.Null ? value.Deserialize<T>()! : fallback;
+
+    private async Task<bool> LoadSettingsAsync(bool readStartupRegistry = true)
     {
-        _providerItems.Clear();
-        foreach (var provider in _translationService.GetProviders())
-        {
-            _providerItems.Add(new ProviderSelectionItem
-            {
-                Id = provider,
-                DisplayName = provider
-            });
-        }
-
-        ProviderListBox.ItemsSource = _providerItems;
-
-        _ocrProviderItems.Clear();
-        foreach (var provider in _ocrService.GetProviders())
-        {
-            _ocrProviderItems.Add(new ProviderSelectionItem
-            {
-                Id = provider,
-                DisplayName = provider
-            });
-        }
-
-        OcrProviderListBox.ItemsSource = _ocrProviderItems;
-    }
-
-    private async void LoadSettings()
-    {
+        _loading = true;
+        Pages.IsEnabled = false;
         try
         {
-            // Load general settings
-            AutoStartCheckBox.IsChecked = IsAutoStartEnabled() || (await _storageService.GetAsync<bool?>("auto_start") ?? false);
-            MinimizeToTrayCheckBox.IsChecked = await _storageService.GetAsync<bool?>("minimize_to_tray") ?? true;
-            NodePathBox.Text = UseConfiguredOrDetectedPath(
-                await _storageService.GetAsync<string>("plugin_node_path"),
-                "node",
-                "node.exe",
-                "node.cmd",
-                "node.bat");
-            PythonPathBox.Text = UseConfiguredOrDetectedPath(
-                await _storageService.GetAsync<string>("plugin_python_path"),
-                "python",
-                "python.exe",
-                "python3.exe",
-                "py.exe");
-            SelectComboBoxItemByTag(ProxyModeCombo, await _storageService.GetAsync<string>("proxy_mode") ?? "System");
-            HttpProxyBox.Text = await _storageService.GetAsync<string>("http_proxy") ?? "";
-            SyncHistoryCheckBox.IsChecked = await _storageService.GetAsync<bool?>("sync_history") ?? false;
-
-            // Load translation settings
-            var providers = await _storageService.GetAsync<List<string>>("enabled_translation_providers") ?? new List<string>();
-            if (providers.Count == 0 && _providerItems.Count > 0)
+            var saved = await _storageService.SnapshotAsync();
+            var defaults = new Dictionary<string, object>
             {
-                providers.Add(_providerItems[0].Id);
-            }
-
-            ReorderProviders(_providerItems, providers);
-
-            foreach (var providerItem in _providerItems)
-            {
-                providerItem.IsSelected = providers.Contains(providerItem.Id);
-            }
-
-            var ocrProviders = await _storageService.GetAsync<List<string>>("enabled_ocr_providers") ?? new List<string>();
-            if (ocrProviders.Count == 0 && _ocrProviderItems.Count > 0)
-            {
-                ocrProviders.Add(_ocrProviderItems[0].Id);
-            }
-
-            ReorderProviders(_ocrProviderItems, ocrProviders);
-
-            foreach (var providerItem in _ocrProviderItems)
-            {
-                providerItem.IsSelected = ocrProviders.Contains(providerItem.Id);
-            }
-
-            var sourceLang = await _storageService.GetAsync<string>("default_source_lang") ?? "auto";
-            SelectComboBoxItemByTag(DefaultSourceLangCombo, sourceLang);
-
-            var targetLang = await _storageService.GetAsync<string>("default_target_lang") ?? "zh-CN";
-            SelectComboBoxItemByTag(DefaultTargetLangCombo, targetLang);
-
-            OcrHotkeyBox.Text = await _storageService.GetAsync<string>("ocr_hotkey") ?? "Alt+Shift+S";
-            TranslateHotkeyBox.Text = await _storageService.GetAsync<string>("translate_hotkey") ?? "Alt+Shift+T";
-
-            _loadedSettingsSnapshot = CreateSettingsSnapshot();
-            _settingsLoaded = true;
-            Log.Information("Settings loaded");
+                ["auto_start"] = false, ["close_to_tray"] = Get(saved, "minimize_to_tray", true),
+                ["plugin_node_path"] = "", ["plugin_python_path"] = "", ["proxy_mode"] = "System", ["http_proxy"] = "",
+                ["sync_history"] = false, ["default_source_lang"] = "auto", ["default_target_lang"] = "zh-CN",
+                ["ocr_hotkey"] = "Alt+Shift+S", ["translate_hotkey"] = "Alt+Shift+T"
+            };
+            foreach (var (key, value) in defaults) saved.TryAdd(key, Json(value));
+            if (_runtimeOverride == null && readStartupRegistry) saved["auto_start"] = Json(IsAutoStartEnabled());
+            PopulateProviders(_providerItems, false, saved);
+            PopulateProviders(_ocrProviderItems, true, saved);
+            ProviderListBox.ItemsSource = _providerItems;
+            OcrProviderListBox.ItemsSource = _ocrProviderItems;
+            AutoStartCheckBox.IsChecked = Get(saved, "auto_start", false);
+            CloseToTrayCheckBox.IsChecked = Get(saved, "close_to_tray", true);
+            SyncHistoryCheckBox.IsChecked = Get(saved, "sync_history", false);
+            NodePathBox.Text = Get(saved, "plugin_node_path", "");
+            PythonPathBox.Text = Get(saved, "plugin_python_path", "");
+            HttpProxyBox.Text = Get(saved, "http_proxy", "");
+            SelectComboBoxItemByTag(ProxyModeCombo, Get(saved, "proxy_mode", "System"));
+            SelectComboBoxItemByTag(DefaultSourceLangCombo, Get(saved, "default_source_lang", "auto"));
+            SelectComboBoxItemByTag(DefaultTargetLangCombo, Get(saved, "default_target_lang", "zh-CN"));
+            OcrHotkeyBox.Text = Get(saved, "ocr_hotkey", "Alt+Shift+S");
+            TranslateHotkeyBox.Text = Get(saved, "translate_hotkey", "Alt+Shift+T");
+            _session = new SettingsAutoSaveSession(_storageService, saved, ApplyRuntimeAsync);
+            _session.Changed += UpdateSaveStatus;
+            _errors.Clear(); _textDirty.Clear(); _proxyDirty = false;
+            UpdateProxyVisibility();
+            UpdateRuntimeHint(NodePathBox); UpdateRuntimeHint(PythonPathBox);
+            UpdateEmptyStates();
         }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "Failed to load settings");
-        }
+        catch { _session = null; SaveStatus.Text = "Could not load settings. Close this window and try again."; return false; }
+        finally { _loading = false; Pages.IsEnabled = _session != null; }
+        UpdateSaveStatus();
+        return true;
     }
 
-    private async void SaveButton_Click(object sender, RoutedEventArgs e)
+    private void PopulateProviders(ObservableCollection<ProviderSelectionItem> items, bool ocr, Dictionary<string, JsonElement> values)
     {
+        foreach (var item in items) item.PropertyChanged -= Provider_Changed;
+        items.Clear();
+        var ids = ocr ? _ocrService.GetProviders() : _translationService.GetProviders();
+        var enabledKey = ocr ? "enabled_ocr_providers" : "enabled_translation_providers";
+        var orderKey = ocr ? "ocr_provider_order" : "translation_provider_order";
+        var enabled = Get(values, enabledKey, Array.Empty<string>()).Where(ids.Contains).ToList();
+        if (enabled.Count == 0 && ids.Count > 0) enabled.Add(ids[0]);
+        var order = Get(values, orderKey, enabled.ToArray()).Where(ids.Contains).Concat(ids).Distinct().ToArray();
+        foreach (var id in order)
+        {
+            var item = new ProviderSelectionItem {
+                Id = id, DisplayName = ocr ? _ocrService.GetProviderDisplayName(id) : _translationService.GetProviderDisplayName(id),
+                IsOcr = ocr, IsSelected = enabled.Contains(id),
+                CanConfigure = (ocr ? _ocrService.GetProviderConfigPath(id) : _translationService.GetProviderConfigPath(id)) != null
+            };
+            item.PropertyChanged += Provider_Changed;
+            items.Add(item);
+        }
+        values[enabledKey] = Json(order.Where(enabled.Contains).ToArray());
+        values[orderKey] = Json(order);
+    }
+
+    private async Task ApplyRuntimeAsync(IReadOnlyDictionary<string, JsonElement> values)
+    {
+        if (_runtimeOverride != null) { await _runtimeOverride(values); return; }
+        if (values.TryGetValue("auto_start", out var autoStart)) SetAutoStart(autoStart.GetBoolean());
+        if (Owner is MainWindow main) await main.ApplyPreferencesAsync(values);
+    }
+
+    private async Task QueueAsync(Dictionary<string, JsonElement> values)
+    {
+        if (_loading || _session == null || _closed) return;
+        _session.Queue(values);
+        await _session.FlushAsync();
+        UpdateSaveStatus();
+    }
+
+    private void UpdateSaveStatus()
+    {
+        if (_closed || _session == null || _busy) return;
+        var error = _session.Error ?? _errors.Values.FirstOrDefault();
+        SaveStatus.Text = error ?? (_session.IsSaving ? "Saving…" : _session.HasPending || _textDirty.Count > 0 || _proxyDirty ? "Changes pending" : "Saved automatically");
+        SaveStatus.Foreground = new SolidColorBrush(error == null ? Color.FromRgb(104, 114, 130) : Color.FromRgb(180, 35, 24));
+        RetryButton.Visibility = _session.Error != null ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private async void Toggle_Changed(object sender, RoutedEventArgs e)
+    {
+        if (sender is CheckBox { Tag: string key } box) await QueueAsync(new() { [key] = Json(box.IsChecked ?? false) });
+    }
+    private async void Language_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (sender is ComboBox { Tag: string key } combo) await QueueAsync(new() { [key] = Json(GetSelectedComboBoxTag(combo)) });
+    }
+    private async void ProxyMode_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (ProxyAddressPanel == null) return;
+        UpdateProxyVisibility();
+        if (_loading) return;
+        _proxyDirty = true;
+        await CommitTextEditsAsync();
+    }
+    private void UpdateProxyVisibility() => ProxyAddressPanel.Visibility = GetSelectedComboBoxTag(ProxyModeCombo) == "Http" ? Visibility.Visible : Visibility.Collapsed;
+
+    private void Path_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_loading || sender is not TextBox { Tag: string key }) return;
+        _textDirty.Add(key);
+        _session?.RemovePending(key);
+        _editTimer.Stop(); _editTimer.Start();
+        UpdateSaveStatus();
+    }
+    private async void TextEdit_Completed(object sender, KeyboardFocusChangedEventArgs e) { if (!_loading) await CommitTextEditsAsync(); }
+    private async void TextEdit_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter) { e.Handled = true; await CommitTextEditsAsync(); }
+    }
+
+    private async Task<bool> CommitTextEditsAsync()
+    {
+        _editTimer.Stop();
+        if (_loading || _session == null) return false;
+        var values = new Dictionary<string, JsonElement>();
+        foreach (var box in new[] { NodePathBox, PythonPathBox })
+        {
+            var key = (string)box.Tag;
+            if (!_textDirty.Contains(key)) continue;
+            var value = box.Text.Trim();
+            if (value.Length > 0 && ResolveExecutable(value) == null)
+                SetFieldError(key, "Choose an existing executable or leave the path blank.");
+            else { _errors.Remove(key); values[key] = Json(value); _textDirty.Remove(key); }
+            UpdateRuntimeHint(box);
+        }
+        if (_proxyDirty || _textDirty.Contains("http_proxy"))
+        {
+            var mode = GetSelectedComboBoxTag(ProxyModeCombo);
+            if (mode != "Http")
+            {
+                _errors.Remove("http_proxy"); _textDirty.Remove("http_proxy");
+                values["proxy_mode"] = Json(mode); _proxyDirty = false;
+            }
+            else
+            {
+                var address = HttpProxyBox.Text.Trim();
+                if (!address.Contains("://")) address = "http://" + address;
+                if (!Uri.TryCreate(address, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https") || string.IsNullOrEmpty(uri.Host))
+                    SetFieldError("http_proxy", "Enter a valid HTTP or HTTPS proxy address.");
+                else
+                {
+                    _errors.Remove("http_proxy"); _textDirty.Remove("http_proxy"); _proxyDirty = false;
+                    values["proxy_mode"] = Json(mode); values["http_proxy"] = Json(address);
+                }
+            }
+            ProxyHint.Text = _errors.GetValueOrDefault("http_proxy") ?? "Example: http://127.0.0.1:7890";
+            ProxyHint.Foreground = FieldBrush("http_proxy");
+        }
+        if (values.Count > 0) _session.Queue(values);
+        var success = await _session.FlushAsync();
+        UpdateSaveStatus();
+        return success && _errors.Count == 0;
+    }
+
+    private void SetFieldError(string key, string message) { _errors[key] = message; _session?.RemovePending(key); }
+    private Brush FieldBrush(string key) => _errors.ContainsKey(key) ? new SolidColorBrush(Color.FromRgb(180, 35, 24)) : new SolidColorBrush(Color.FromRgb(104, 114, 130));
+    private void UpdateRuntimeHint(TextBox box)
+    {
+        var key = (string)box.Tag;
+        var hint = ReferenceEquals(box, NodePathBox) ? NodePathHint : PythonPathHint;
+        var value = box.Text.Trim();
+        var resolved = ResolveExecutable(value.Length > 0 ? value : ReferenceEquals(box, NodePathBox) ? "node" : "python");
+        hint.Text = _errors.GetValueOrDefault(key) ?? (resolved == null ? "Not found on PATH. Browse to an executable to use this runtime." : (value.Length == 0 ? "Automatic: " : "Using: ") + resolved);
+        hint.Foreground = FieldBrush(key);
+    }
+    private static string? ResolveExecutable(string value)
+    {
+        if (Path.IsPathRooted(value)) return File.Exists(value) && new[] { ".exe", ".cmd", ".bat" }.Contains(Path.GetExtension(value), StringComparer.OrdinalIgnoreCase) ? value : null;
+        if (value.IndexOfAny(new[] { '/', '\\', '"' }) >= 0) return null;
+        foreach (var directory in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        foreach (var suffix in Path.HasExtension(value) ? new[] { "" } : new[] { ".exe", ".cmd", ".bat" })
+        {
+            try { var candidate = Path.Combine(directory.Trim(' ', '"'), value + suffix); if (File.Exists(candidate)) return candidate; }
+            catch (ArgumentException) { }
+        }
+        return null;
+    }
+    private async void BrowseRuntime_Click(object sender, RoutedEventArgs e)
+    {
+        var box = ((Button)sender).Tag?.ToString() == "Node" ? NodePathBox : PythonPathBox;
+        var dialog = new OpenFileDialog { Filter = "Executables (*.exe;*.cmd;*.bat)|*.exe;*.cmd;*.bat", CheckFileExists = true };
+        if (dialog.ShowDialog(this) == true) { box.Text = dialog.FileName; await CommitTextEditsAsync(); }
+    }
+    private async void ResetRuntime_Click(object sender, RoutedEventArgs e)
+    {
+        var box = ((Button)sender).Tag?.ToString() == "Node" ? NodePathBox : PythonPathBox;
+        box.Text = ""; await CommitTextEditsAsync();
+    }
+
+    private async void Navigation_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (Pages == null || NavigationList.SelectedIndex < 0) return;
+        CancelRecording();
+        var index = NavigationList.SelectedIndex;
+        for (var i = 0; i < Pages.Children.Count; i++) Pages.Children[i].Visibility = i == index ? Visibility.Visible : Visibility.Collapsed;
+        PageTitle.Text = PageNames[index]; PageDescription.Text = PageDescriptions[index]; PageScroll.ScrollToTop();
+        if (!_loading) await CommitTextEditsAsync();
+    }
+
+    private async void Provider_Changed(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_loading || sender is not ProviderSelectionItem item || e.PropertyName != nameof(item.IsSelected)) return;
+        var items = item.IsOcr ? _ocrProviderItems : _providerItems;
+        var error = item.IsOcr ? OcrServiceError : TranslationServiceError;
+        if (!items.Any(p => p.IsSelected))
+        {
+            _loading = true; item.IsSelected = true; _loading = false;
+            error.Text = "Keep at least one service enabled."; error.Visibility = Visibility.Visible;
+            return;
+        }
+        error.Visibility = Visibility.Collapsed;
+        await SaveProviderOrderAsync(item.IsOcr);
+    }
+    private Task SaveProviderOrderAsync(bool ocr)
+    {
+        var items = ocr ? _ocrProviderItems : _providerItems;
+        return QueueAsync(new() {
+            [ocr ? "enabled_ocr_providers" : "enabled_translation_providers"] = Json(items.Where(p => p.IsSelected).Select(p => p.Id).ToArray()),
+            [ocr ? "ocr_provider_order" : "translation_provider_order"] = Json(items.Select(p => p.Id).ToArray())
+        });
+    }
+    private void UpdateEmptyStates()
+    {
+        TranslationEmpty.Visibility = _providerItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        OcrEmpty.Visibility = _ocrProviderItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+    private async void RefreshServices_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy || _session == null) return;
+        CancelRecording();
+        var ocr = ((Button)sender).Tag?.ToString() == "ocr";
         try
         {
-            await SaveSettingsCoreAsync();
-
-            _loadedSettingsSnapshot = CreateSettingsSnapshot();
-            Log.Information("Settings saved");
-
-            DialogResult = true;
-            Close();
+            _loading = true;
+            var items = ocr ? _ocrProviderItems : _providerItems;
+            var state = _session.Saved.ToDictionary();
+            state[ocr ? "enabled_ocr_providers" : "enabled_translation_providers"] = Json(items.Where(p => p.IsSelected).Select(p => p.Id).ToArray());
+            state[ocr ? "ocr_provider_order" : "translation_provider_order"] = Json(items.Select(p => p.Id).ToArray());
+            if (ocr) _ocrService.ReloadPlugins(); else _translationService.ReloadProviders();
+            PopulateProviders(items, ocr, state);
+            UpdateEmptyStates();
         }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "Failed to save settings");
-            MessageBox.Show($"Failed to save settings: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-        }
+        catch { SaveStatus.Text = "Could not refresh services. Check the plugin files and retry."; return; }
+        finally { _loading = false; }
+        await SaveProviderOrderAsync(ocr);
     }
 
-    private async Task SaveSettingsCoreAsync()
+    private void RecordHotkey_Click(object sender, RoutedEventArgs e)
     {
-        var autoStart = AutoStartCheckBox.IsChecked ?? false;
-        await _storageService.SetAsync("auto_start", autoStart);
-        await _storageService.SetAsync("minimize_to_tray", MinimizeToTrayCheckBox.IsChecked ?? true);
-        await _storageService.SetAsync("plugin_node_path", NodePathBox.Text.Trim());
-        await _storageService.SetAsync("plugin_python_path", PythonPathBox.Text.Trim());
-        await _storageService.SetAsync("proxy_mode", GetSelectedComboBoxTag(ProxyModeCombo));
-        await _storageService.SetAsync("http_proxy", HttpProxyBox.Text.Trim());
-        await _storageService.SetAsync("sync_history", SyncHistoryCheckBox.IsChecked ?? false);
-        ApplyRuntimePathSettings();
-        ApplyProxySettings();
-        SetAutoStart(autoStart);
-
-        var selectedProviders = _providerItems.Where(item => item.IsSelected).Select(item => item.Id).ToList();
-        if (selectedProviders.Count == 0 && _providerItems.Count > 0)
+        CancelRecording();
+        _recordingHotkeyBox = ((Button)sender).Tag?.ToString() == "ocr" ? OcrHotkeyBox : TranslateHotkeyBox;
+        _recordingOriginal = _recordingHotkeyBox.Text;
+        if (Owner is MainWindow main) main.SuspendConfiguredHotkeys();
+        _recordingHotkeyBox.Text = "Press a shortcut…";
+        _recordingHotkeyBox.Focus();
+    }
+    private void CancelRecording()
+    {
+        if (_recordingHotkeyBox == null) return;
+        _recordingHotkeyBox.Text = _recordingOriginal; _recordingHotkeyBox = null;
+        if (Owner is MainWindow main) main.ResumeConfiguredHotkeys();
+    }
+    private void Hotkey_LostFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (ReferenceEquals(sender, _recordingHotkeyBox)) CancelRecording();
+    }
+    private async void SettingsWindow_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (_recordingHotkeyBox == null)
         {
-            selectedProviders.Add(_providerItems[0].Id);
+            if (e.Key == Key.Escape) { e.Handled = true; Close(); }
+            return;
         }
-
-        await _storageService.SetAsync("enabled_translation_providers", selectedProviders);
-
-        var selectedOcrProviders = _ocrProviderItems.Where(item => item.IsSelected).Select(item => item.Id).ToList();
-        if (selectedOcrProviders.Count == 0 && _ocrProviderItems.Count > 0)
+        e.Handled = true;
+        if (e.Key == Key.Escape) { CancelRecording(); return; }
+        var hotkey = FormatHotkey(e);
+        if (string.IsNullOrEmpty(hotkey)) return;
+        var box = _recordingHotkeyBox;
+        var other = ReferenceEquals(box, OcrHotkeyBox) ? TranslateHotkeyBox.Text : OcrHotkeyBox.Text;
+        var hint = ReferenceEquals(box, OcrHotkeyBox) ? OcrHotkeyHint : TranslateHotkeyHint;
+        if (!MainWindow.TryParseHotkey(hotkey, out var modifiers, out var key) ||
+            (MainWindow.TryParseHotkey(other, out var om, out var ok) && modifiers == om && key == ok))
         {
-            selectedOcrProviders.Add(_ocrProviderItems[0].Id);
+            hint.Text = "Choose a supported shortcut that differs from the other action.";
+            return;
         }
-
-        await _storageService.SetAsync("enabled_ocr_providers", selectedOcrProviders);
-        await _storageService.SetAsync("default_source_lang", GetSelectedComboBoxTag(DefaultSourceLangCombo));
-        await _storageService.SetAsync("default_target_lang", GetSelectedComboBoxTag(DefaultTargetLangCombo));
-        await _storageService.SetAsync("ocr_hotkey", OcrHotkeyBox.Text.Trim());
-        await _storageService.SetAsync("translate_hotkey", TranslateHotkeyBox.Text.Trim());
-        _loadedSettingsSnapshot = CreateSettingsSnapshot();
+        CancelRecording();
+        box.Text = hotkey;
+        await QueueAsync(new() { [ReferenceEquals(box, OcrHotkeyBox) ? "ocr_hotkey" : "translate_hotkey"] = Json(hotkey) });
+        hint.Text = _session?.Error ?? "Record a shortcut. Press Esc to cancel.";
     }
 
+    private async void ExportConfigButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy || !await CommitTextEditsAsync()) return;
+        var dialog = new SaveFileDialog { Filter = "RabTrans backup (*.zip)|*.zip", FileName = "RabTransConfig.zip" };
+        if (dialog.ShowDialog(this) != true) return;
+        SetBusy(true, "Exporting backup…");
+        try
+        {
+            var history = SyncHistoryCheckBox.IsChecked ?? false;
+            await Task.Run(() => _configSyncService.CreateConfigPackage(dialog.FileName, history));
+            BackupStatus.Text = "Backup exported.";
+        }
+        catch { BackupStatus.Text = "Could not export the backup. Check the destination and try again."; }
+        finally { SetBusy(false); }
+    }
+    private async void ImportConfigButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy || !await CommitTextEditsAsync()) return;
+        var dialog = new OpenFileDialog { Filter = "RabTrans backup (*.zip)|*.zip" };
+        if (dialog.ShowDialog(this) != true || MessageBox.Show(this,
+            "Replace local settings and plugins with this backup? A recovery copy of the current configuration will be saved first.",
+            "Import backup", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        SetBusy(true, "Restoring backup…");
+        var recovery = Path.Combine(_storageService.AppDataPath, "backups", "before-import-" + DateTime.Now.ToString("yyyyMMdd-HHmmss-fff") + ".zip");
+        var backupCreated = false;
+        var previousRuntime = _session!.Saved.ToDictionary();
+        var hadHistory = File.Exists(_storageService.HistoryPath);
+        try
+        {
+            await Task.Run(() => { Directory.CreateDirectory(Path.GetDirectoryName(recovery)!); _configSyncService.CreateConfigPackage(recovery, true); });
+            backupCreated = true;
+            await Task.Run(() => _configSyncService.ImportConfigPackage(dialog.FileName));
+            _translationService.ReloadProviders(); _ocrService.ReloadPlugins();
+            if (Owner is MainWindow main) await main.ReloadConfigurationAsync();
+            if (!await LoadSettingsAsync(false)) throw new InvalidOperationException("Invalid settings in backup.");
+            await ApplyRuntimeAsync(_session!.Saved);
+            BackupStatus.Text = "Backup restored. A recovery copy is available in the backups folder.";
+        }
+        catch
+        {
+            if (backupCreated)
+            {
+                try
+                {
+                    await Task.Run(() => {
+                        _configSyncService.ImportConfigPackage(recovery);
+                        if (!hadHistory && File.Exists(_storageService.HistoryPath)) File.Delete(_storageService.HistoryPath);
+                    });
+                    _translationService.ReloadProviders(); _ocrService.ReloadPlugins();
+                    if (Owner is MainWindow main) await main.ReloadConfigurationAsync();
+                    await ApplyRuntimeAsync(previousRuntime);
+                    if (!await LoadSettingsAsync()) throw new InvalidOperationException("Could not reload recovery settings.");
+                    BackupStatus.Text = "Import failed. The previous configuration was restored.";
+                }
+                catch { BackupStatus.Text = "Import failed. Restore the recovery ZIP in the backups folder before continuing."; }
+            }
+            else BackupStatus.Text = "Could not create a recovery backup. Nothing was imported.";
+        }
+        finally { SetBusy(false); }
+    }
+    private void SetBusy(bool busy, string? message = null)
+    {
+        _busy = busy; Pages.IsEnabled = !busy && _session != null; NavigationList.IsEnabled = !busy;
+        if (busy) SaveStatus.Text = message; else UpdateSaveStatus();
+    }
+    private void OpenConfigFolderButton_Click(object sender, RoutedEventArgs e)
+    {
+        try { Process.Start(new ProcessStartInfo(_storageService.AppDataPath) { UseShellExecute = true }); }
+        catch { SaveStatus.Text = "Could not open the configuration folder."; }
+    }
+    private void OpenServiceConfig_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: ProviderSelectionItem item }) return;
+        try
+        {
+            var path = item.IsOcr ? _ocrService.OpenProviderConfiguration(item.Id) : _translationService.OpenProviderConfiguration(item.Id);
+            Process.Start(new ProcessStartInfo("notepad.exe") { ArgumentList = { path }, UseShellExecute = false });
+        }
+        catch { SaveStatus.Text = "Could not open config.json. Check file access and try again."; }
+    }
+    private async void Retry_Click(object sender, RoutedEventArgs e) => await CommitTextEditsAsync();
+    private void Close_Click(object sender, RoutedEventArgs e) => Close();
+    private async void SettingsWindow_Closing(object? sender, CancelEventArgs e)
+    {
+        if (_allowClose) return;
+        e.Cancel = true;
+        if (_closing || _busy) return;
+        _closing = true;
+        CancelRecording();
+        try
+        {
+            while (_session != null && !await CommitTextEditsAsync())
+            {
+                var choice = ChooseCloseAction();
+                if (choice == "Retry") continue;
+                if (choice != "Discard edits") return;
+                if (!await _session.DiscardPendingAsync()) continue;
+                break;
+            }
+            _allowClose = true;
+            // A completed save may not yield: leave the current Closing event before closing again.
+            _ = Dispatcher.BeginInvoke(Close);
+        }
+        finally { _closing = false; }
+    }
+    private string ChooseCloseAction()
+    {
+        var choice = "Keep editing";
+        var dialog = new Window { Title = "Unsaved edits", Owner = this, SizeToContent = SizeToContent.Height, Width = 440,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner, ResizeMode = ResizeMode.NoResize, FontFamily = FontFamily, FontSize = 13 };
+        var content = new StackPanel { Margin = new Thickness(24) };
+        content.Children.Add(new TextBlock { Text = "Some edits could not be saved. Retry, or discard only those edits and close. Your saved settings will be kept.", TextWrapping = TextWrapping.Wrap });
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 20, 0, 0) };
+        foreach (var label in new[] { "Retry", "Discard edits", "Keep editing" })
+        {
+            var button = new Button { Content = label, Padding = new Thickness(10, 6, 10, 6), Margin = new Thickness(6, 0, 0, 0) };
+            button.Click += (_, _) => { choice = label; dialog.Close(); }; buttons.Children.Add(button);
+        }
+        content.Children.Add(buttons); dialog.Content = content; dialog.ShowDialog(); return choice;
+    }
+
+    private void FitToMonitor()
+    {
+        var handle = new WindowInteropHelper(this).Handle;
+        var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+        if (!GetMonitorInfo(MonitorFromWindow(handle, 2), ref info)) return;
+        var scale = VisualTreeHelper.GetDpi(this);
+        var width = (info.Work.Right - info.Work.Left) / scale.DpiScaleX - 16;
+        var height = (info.Work.Bottom - info.Work.Top) / scale.DpiScaleY - 16;
+        MinWidth = Math.Min(680, width); MinHeight = Math.Min(480, height);
+        Width = Math.Min(Width, width); Height = Math.Min(Height, height);
+        Left = Math.Clamp(Left, info.Work.Left / scale.DpiScaleX, info.Work.Right / scale.DpiScaleX - Width);
+        Top = Math.Clamp(Top, info.Work.Top / scale.DpiScaleY, info.Work.Bottom / scale.DpiScaleY - Height);
+    }
+    [StructLayout(LayoutKind.Sequential)] private struct NativeRect { public int Left, Top, Right, Bottom; }
+    [StructLayout(LayoutKind.Sequential)] private struct MonitorInfo { public int Size; public NativeRect Monitor, Work; public uint Flags; }
+    [DllImport("user32.dll")] private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
+    [DllImport("user32.dll", CharSet = CharSet.Auto)] private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
     private static bool IsAutoStartEnabled()
     {
         using var key = Registry.CurrentUser.OpenSubKey(AutoStartRunKeyPath, false);
@@ -249,200 +558,6 @@ public partial class SettingsWindow : Window
         }
 
         return path;
-    }
-
-    private void CancelButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (!ConfirmDiscardUnsavedChanges())
-        {
-            return;
-        }
-
-        DialogResult = false;
-        Close();
-    }
-
-    private void RecordOcrHotkey_Click(object sender, RoutedEventArgs e)
-    {
-        StartHotkeyRecording(OcrHotkeyBox);
-    }
-
-    private void RecordTranslateHotkey_Click(object sender, RoutedEventArgs e)
-    {
-        StartHotkeyRecording(TranslateHotkeyBox);
-    }
-
-    private void StartHotkeyRecording(TextBox targetBox)
-    {
-        SuspendOwnerHotkeysForRecording();
-        _recordingHotkeyBox = targetBox;
-        targetBox.Text = "Press keys...";
-        targetBox.Focus();
-    }
-
-    private void SettingsWindow_PreviewKeyDown(object sender, KeyEventArgs e)
-    {
-        if (_recordingHotkeyBox == null)
-        {
-            if (e.Key == Key.Escape)
-            {
-                e.Handled = true;
-                if (ConfirmDiscardUnsavedChanges())
-                {
-                    DialogResult = false;
-                    Close();
-                }
-            }
-
-            return;
-        }
-
-        e.Handled = true;
-        var hotkey = FormatHotkey(e);
-        if (string.IsNullOrWhiteSpace(hotkey))
-        {
-            return;
-        }
-
-        _recordingHotkeyBox.Text = hotkey;
-        _recordingHotkeyBox = null;
-    }
-
-    private bool ConfirmDiscardUnsavedChanges()
-    {
-        if (!_settingsLoaded || !HasUnsavedChanges())
-        {
-            return true;
-        }
-
-        var result = MessageBox.Show(
-            "You have unsaved changes. Close settings without saving?",
-            "Unsaved changes",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Warning);
-        return result == MessageBoxResult.Yes;
-    }
-
-    private bool HasUnsavedChanges() => !string.Equals(
-        _loadedSettingsSnapshot,
-        CreateSettingsSnapshot(),
-        StringComparison.Ordinal);
-
-    private string CreateSettingsSnapshot()
-    {
-        return string.Join("\u001F", new[]
-        {
-            (AutoStartCheckBox.IsChecked ?? false).ToString(),
-            (MinimizeToTrayCheckBox.IsChecked ?? true).ToString(),
-            NodePathBox.Text.Trim(),
-            PythonPathBox.Text.Trim(),
-            GetSelectedComboBoxTag(ProxyModeCombo),
-            HttpProxyBox.Text.Trim(),
-            (SyncHistoryCheckBox.IsChecked ?? false).ToString(),
-            string.Join(",", _providerItems.Select(item => $"{item.Id}:{item.IsSelected}")),
-            string.Join(",", _ocrProviderItems.Select(item => $"{item.Id}:{item.IsSelected}")),
-            GetSelectedComboBoxTag(DefaultSourceLangCombo),
-            GetSelectedComboBoxTag(DefaultTargetLangCombo),
-            OcrHotkeyBox.Text.Trim(),
-            TranslateHotkeyBox.Text.Trim()
-        });
-    }
-
-    private static string GetAppVersion()
-    {
-        var version = typeof(App).Assembly
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
-            .InformationalVersion;
-        if (string.IsNullOrWhiteSpace(version))
-        {
-            version = typeof(App).Assembly.GetName().Version?.ToString();
-        }
-
-        return string.IsNullOrWhiteSpace(version) ? "unknown" : version;
-    }
-
-    private void ApplyProxySettings()
-    {
-        NetworkProxyOptions.Mode = NetworkProxyOptions.ParseMode(GetSelectedComboBoxTag(ProxyModeCombo));
-        NetworkProxyOptions.HttpProxy = HttpProxyBox.Text.Trim();
-    }
-
-    private void ApplyRuntimePathSettings()
-    {
-        PluginRuntimeOptions.NodeExecutablePath = NodePathBox.Text.Trim();
-        PluginRuntimeOptions.PythonExecutablePath = PythonPathBox.Text.Trim();
-    }
-
-    private static string UseConfiguredOrDetectedPath(string? configuredPath, string fallback, params string[] executableNames)
-    {
-        return string.IsNullOrWhiteSpace(configuredPath)
-            ? ResolveExecutableFromPath(fallback, executableNames)
-            : configuredPath.Trim();
-    }
-
-    private static string ResolveExecutableFromPath(string fallback, params string[] executableNames)
-    {
-        var pathValue = Environment.GetEnvironmentVariable("PATH");
-        if (string.IsNullOrWhiteSpace(pathValue))
-        {
-            return fallback;
-        }
-
-        foreach (var directory in pathValue.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
-        {
-            try
-            {
-                foreach (var executableName in executableNames)
-                {
-                    var candidate = Path.Combine(directory.Trim(), executableName);
-                    if (File.Exists(candidate))
-                    {
-                        return candidate;
-                    }
-                }
-            }
-            catch
-            {
-                // Ignore malformed PATH entries.
-            }
-        }
-
-        return fallback;
-    }
-
-    private void SettingsWindow_Closed(object? sender, EventArgs e)
-    {
-        _recordingHotkeyBox = null;
-        ResumeOwnerHotkeysAfterRecording();
-    }
-
-    private void SuspendOwnerHotkeysForRecording()
-    {
-        if (_hotkeysSuspendedForRecording)
-        {
-            return;
-        }
-
-        if (Owner is MainWindow mainWindow)
-        {
-            mainWindow.SuspendConfiguredHotkeys();
-            _hotkeysSuspendedForRecording = true;
-        }
-    }
-
-    private void ResumeOwnerHotkeysAfterRecording()
-    {
-        if (!_hotkeysSuspendedForRecording)
-        {
-            return;
-        }
-
-        if (Owner is MainWindow mainWindow)
-        {
-            mainWindow.ResumeConfiguredHotkeys();
-        }
-
-        _hotkeysSuspendedForRecording = false;
     }
 
     private static string FormatHotkey(KeyEventArgs e)
@@ -489,129 +604,10 @@ public partial class SettingsWindow : Window
         };
     }
 
-    private void OpenConfigFolderButton_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            Directory.CreateDirectory(ConfigDirectory);
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = ConfigDirectory,
-                UseShellExecute = true
-            });
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "Failed to open config folder");
-            MessageBox.Show($"Failed to open config folder: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-        }
-    }
-
-    private async void ExportConfigButton_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            var dialog = new SaveFileDialog
-            {
-                Filter = "RabTrans config package (*.zip)|*.zip",
-                FileName = "RabTransConfig.zip"
-            };
-
-            if (dialog.ShowDialog(this) != true)
-            {
-                return;
-            }
-
-            await SaveSettingsCoreAsync();
-            _configSyncService.CreateConfigPackage(dialog.FileName, SyncHistoryCheckBox.IsChecked ?? false);
-            MessageBox.Show("Configuration exported.", "RabTrans", MessageBoxButton.OK, MessageBoxImage.Information);
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "Failed to export configuration");
-            MessageBox.Show($"Failed to export configuration: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-        }
-    }
-
-    private async void ImportConfigButton_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            var dialog = new OpenFileDialog
-            {
-                Filter = "RabTrans config package (*.zip)|*.zip"
-            };
-
-            if (dialog.ShowDialog(this) != true || !ConfirmImport())
-            {
-                return;
-            }
-
-            ImportConfigPackage(dialog.FileName);
-            MessageBox.Show("Configuration imported.", "RabTrans", MessageBoxButton.OK, MessageBoxImage.Information);
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "Failed to import configuration");
-            MessageBox.Show($"Failed to import configuration: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-        }
-    }
-
-    private bool ConfirmImport()
-    {
-        return MessageBox.Show(
-            "Importing configuration will overwrite local settings and user plugins. Continue?",
-            "Import configuration",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Warning) == MessageBoxResult.Yes;
-    }
-
-    private void ImportConfigPackage(string packagePath)
-    {
-        _configSyncService.ImportConfigPackage(packagePath);
-        ReloadAfterConfigImport();
-    }
-
-    private void ReloadAfterConfigImport()
-    {
-        _translationService.ReloadProviders();
-        _ocrService.ReloadPlugins();
-        if (Owner is MainWindow mainWindow)
-        {
-            mainWindow.ReloadConfiguration();
-        }
-
-        PopulateInterfaceLists();
-        LoadSettings();
-    }
-
-    private void ReloadConfigButton_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            _translationService.ReloadProviders();
-            _ocrService.ReloadPlugins();
-
-            if (Owner is MainWindow mainWindow)
-            {
-                mainWindow.ReloadConfiguration();
-            }
-
-            PopulateInterfaceLists();
-            LoadSettings();
-
-            MessageBox.Show("Configuration reloaded.", "RabTrans", MessageBoxButton.OK, MessageBoxImage.Information);
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "Failed to reload configuration");
-            MessageBox.Show($"Failed to reload configuration: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-        }
-    }
-
     private void ProviderListBox_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (FindAncestor<CheckBox>(e.OriginalSource as DependencyObject) != null)
+        var handle = FindAncestor<Button>(e.OriginalSource as DependencyObject);
+        if (handle?.Tag?.ToString() != "DragHandle")
         {
             _providerDragStartPoint = null;
             return;
@@ -620,6 +616,8 @@ public partial class SettingsWindow : Window
         if (sender is ListBox listBox)
         {
             _providerDragStartPoint = e.GetPosition(listBox);
+            _dragSource = listBox;
+            listBox.SelectedItem = handle.DataContext;
         }
     }
 
@@ -649,14 +647,21 @@ public partial class SettingsWindow : Window
 
         ClearProviderDropIndicator();
         _providerDragStartPoint = null;
+        _dragSource = null;
     }
 
     private void ProviderListBox_DragOver(object sender, DragEventArgs e)
     {
-        e.Effects = e.Data.GetDataPresent(typeof(ProviderSelectionItem))
+        e.Effects = ReferenceEquals(sender, _dragSource) && e.Data.GetDataPresent(typeof(ProviderSelectionItem))
             ? DragDropEffects.Move
             : DragDropEffects.None;
 
+        if (e.Effects == DragDropEffects.Move)
+        {
+            var point = e.GetPosition(PageScroll);
+            if (point.Y < 32) PageScroll.LineUp();
+            else if (point.Y > PageScroll.ActualHeight - 32) PageScroll.LineDown();
+        }
         if (e.Effects == DragDropEffects.Move &&
             FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject) is { } targetContainer)
         {
@@ -679,9 +684,9 @@ public partial class SettingsWindow : Window
         }
     }
 
-    private void ProviderListBox_Drop(object sender, DragEventArgs e)
+    private async void ProviderListBox_Drop(object sender, DragEventArgs e)
     {
-        if (!e.Data.GetDataPresent(typeof(ProviderSelectionItem)))
+        if (!ReferenceEquals(sender, _dragSource) || !e.Data.GetDataPresent(typeof(ProviderSelectionItem)))
         {
             ClearProviderDropIndicator();
             return;
@@ -721,6 +726,7 @@ public partial class SettingsWindow : Window
         items.Move(sourceIndex, insertIndex);
         listBox.SelectedItem = sourceItem;
         ClearProviderDropIndicator();
+        await SaveProviderOrderAsync(ReferenceEquals(listBox, OcrProviderListBox));
     }
 
     private void SetProviderDropIndicator(ListBoxItem targetContainer, bool after)
@@ -732,7 +738,7 @@ public partial class SettingsWindow : Window
 
         _providerDropContainer = targetContainer;
         _providerDropAfter = after;
-        targetContainer.BorderBrush = FindResource("AccentBrush") as Brush ?? Brushes.DodgerBlue;
+        targetContainer.BorderBrush = TryFindResource("AccentBrush") as Brush ?? Brushes.DodgerBlue;
         targetContainer.BorderThickness = after ? new Thickness(0, 0, 0, 3) : new Thickness(0, 3, 0, 0);
     }
 
@@ -769,22 +775,16 @@ public partial class SettingsWindow : Window
         return ReferenceEquals(listBox, OcrProviderListBox) ? _ocrProviderItems : _providerItems;
     }
 
-    private void ReorderProviders(ObservableCollection<ProviderSelectionItem> items, IReadOnlyList<string> orderedProviderIds)
+    private async void ProviderListBox_KeyDown(object sender, KeyEventArgs e)
     {
-        var orderedItems = orderedProviderIds
-            .Select(id => items.FirstOrDefault(item => item.Id == id))
-            .Where(item => item != null)
-            .Cast<ProviderSelectionItem>()
-            .Concat(items.Where(item => !orderedProviderIds.Contains(item.Id)))
-            .ToList();
-
-        items.Clear();
-        foreach (var item in orderedItems)
-        {
-            items.Add(item);
-        }
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (Keyboard.Modifiers != ModifierKeys.Alt || key is not (Key.Up or Key.Down) || sender is not ListBox list || list.SelectedItem is not ProviderSelectionItem selected) return;
+        e.Handled = true;
+        var items = GetProviderItems(list);
+        var current = items.IndexOf(selected);
+        var next = Math.Clamp(current + (key == Key.Up ? -1 : 1), 0, items.Count - 1);
+        if (current != next) { items.Move(current, next); list.SelectedItem = selected; await SaveProviderOrderAsync(ReferenceEquals(list, OcrProviderListBox)); }
     }
-
     private void SelectComboBoxItemByTag(ComboBox comboBox, string tag)
     {
         foreach (ComboBoxItem item in comboBox.Items)
@@ -813,6 +813,9 @@ public class ProviderSelectionItem : INotifyPropertyChanged
 
     public string Id { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
+
+    public bool CanConfigure { get; set; }
+    public bool IsOcr { get; set; }
 
     public bool IsSelected
     {

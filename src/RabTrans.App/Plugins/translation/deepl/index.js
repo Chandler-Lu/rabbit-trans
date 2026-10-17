@@ -1,5 +1,3 @@
-const API_KEY = 'PUT_YOUR_DEEPL_API_KEY_HERE';
-
 main().catch((error) => {
   console.error(error?.stack || String(error));
   process.exit(1);
@@ -7,6 +5,12 @@ main().catch((error) => {
 
 async function main() {
   const input = await readInput();
+  const config = input.config;
+  if (!config || typeof config !== 'object' || Array.isArray(config))
+    throw new Error('config must be a JSON object.');
+  if (typeof config.apiKey !== 'string' || !config.apiKey.trim())
+    throw new Error('Configure apiKey in config.json.');
+  const API_KEY = config.apiKey;
   const body = new URLSearchParams();
   body.set('text', input.text || '');
   const sourceLang = mapSourceLang(input.from);
@@ -16,9 +20,9 @@ async function main() {
     method: 'POST',
     headers: { Authorization: `DeepL-Auth-Key ${API_KEY}` },
     body
-  });
-  if (!response.ok) throw new Error(`DeepL HTTP ${response.status}: ${await response.text()}`);
-  const data = await response.json();
+  }).catch(() => { throw new Error('Translation request failed. Check the service configuration and network.'); });
+  if (!response.ok) throw new Error(`DeepL HTTP ${response.status}`);
+  const data = await response.json().catch(() => { throw new Error('Service returned invalid JSON.'); });
   process.stdout.write(JSON.stringify({ text: data?.translations?.[0]?.text || '' }));
 }
 

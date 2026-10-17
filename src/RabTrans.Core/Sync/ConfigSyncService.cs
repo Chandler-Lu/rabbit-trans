@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Text.Json;
 using RabTrans.Core.Storage;
 
 namespace RabTrans.Core.Sync;
@@ -14,19 +15,20 @@ public class ConfigSyncService
 
     public void CreateConfigPackage(string packagePath, bool includeHistory)
     {
-        if (File.Exists(packagePath))
+        var temporary = packagePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
         {
-            File.Delete(packagePath);
+            using (var archive = ZipFile.Open(temporary, ZipArchiveMode.Create))
+            {
+                using (var writer = new StreamWriter(archive.CreateEntry("settings.json").Open()))
+                    writer.Write(JsonSerializer.Serialize(_storageService.SnapshotAsync().GetAwaiter().GetResult()));
+                archive.CreateEntry("plugins/");
+                AddDirectoryToArchive(archive, Path.Combine(_storageService.AppDataPath, "plugins"), "plugins");
+                if (includeHistory) AddFileToArchive(archive, _storageService.HistoryPath, "history.jsonl");
+            }
+            File.Move(temporary, packagePath, true);
         }
-
-        using var archive = ZipFile.Open(packagePath, ZipArchiveMode.Create);
-        AddFileToArchive(archive, _storageService.SettingsPath, "settings.json");
-        AddDirectoryToArchive(archive, Path.Combine(_storageService.AppDataPath, "plugins"), "plugins");
-
-        if (includeHistory)
-        {
-            AddFileToArchive(archive, _storageService.HistoryPath, "history.jsonl");
-        }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 
     public void ImportConfigPackage(string packagePath)
@@ -35,6 +37,8 @@ public class ConfigSyncService
         try
         {
             ZipFile.ExtractToDirectory(packagePath, tempDir);
+            using (var settings = JsonDocument.Parse(File.ReadAllText(Path.Combine(tempDir, "settings.json"))))
+                if (settings.RootElement.ValueKind != JsonValueKind.Object) throw new InvalidDataException("The backup must contain a settings object.");
             CopyIfExists(Path.Combine(tempDir, "settings.json"), _storageService.SettingsPath);
             ReplaceDirectory(Path.Combine(tempDir, "plugins"), Path.Combine(_storageService.AppDataPath, "plugins"));
             CopyIfExists(Path.Combine(tempDir, "history.jsonl"), _storageService.HistoryPath);

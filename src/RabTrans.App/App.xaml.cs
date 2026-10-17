@@ -209,10 +209,7 @@ public partial class App : Application
             {
                 Owner = _mainWindow
             };
-            if (settingsWindow.ShowDialog() == true)
-            {
-                _mainWindow.ReloadConfiguration();
-            }
+            settingsWindow.ShowDialog();
         }));
         menu.Items.Add(CreateTrayMenuItem("Exit", (_, _) =>
         {

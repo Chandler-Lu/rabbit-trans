@@ -10,14 +10,13 @@ import warnings
 
 def main():
     request = read_input()
+    options = resolve_options(request.get("config"))
     image_base64 = request.get("imageBase64") or ""
 
     if not image_base64:
         raise RuntimeError("PaddleOCR input did not contain imageBase64.")
 
-    engine = normalize_engine(
-        os.environ.get("RABTRANS_PADDLEOCR_ENGINE", "")
-    )
+    engine = options.get("engine")
 
     configure_paddle_runtime(engine)
     ensure_engine_dependency(engine or "paddle_static")
@@ -42,21 +41,9 @@ def main():
         with open(image_path, "wb") as image_file:
             image_file.write(image_bytes)
 
-        lang = (
-            os.environ.get("RABTRANS_PADDLEOCR_LANG", "ch").strip()
-            or "ch"
-        )
-
         with contextlib.redirect_stdout(sys.stderr):
-            ocr = create_ocr(
-                PaddleOCR,
-                lang,
-                engine,
-            )
-            results = run_ocr(
-                ocr,
-                image_path,
-            )
+            ocr = create_ocr(PaddleOCR, options)
+            results = run_ocr(ocr, image_path)
 
         raw = serialize_results(results)
         lines = collect_text_lines(raw)
@@ -136,33 +123,44 @@ def require_module(module_name, error_message):
         raise RuntimeError(error_message)
 
 
-def create_ocr(paddle_ocr_class, lang, engine):
+def resolve_options(config):
+    if not isinstance(config, dict):
+        raise RuntimeError("config must be a JSON object.")
+    extra = config.get("options", {})
+    if not isinstance(extra, dict):
+        raise RuntimeError("options must be a JSON object.")
     kwargs = {
-        "lang": lang,
+        "lang": config.get("lang", "ch"),
         "use_doc_orientation_classify": False,
         "use_doc_unwarping": False,
         "use_textline_orientation": True,
         "enable_mkldnn": False,
-        "device": os.environ.get(
-            "RABTRANS_PADDLEOCR_DEVICE",
-            "cpu",
-        ),
+        "device": config.get("device", "cpu"),
     }
+    if "engine" in config:
+        kwargs["engine"] = config["engine"]
+    kwargs.update(extra)
+    for key in ("lang", "device"):
+        if not isinstance(kwargs[key], str) or not kwargs[key].strip():
+            raise RuntimeError(f"{key} must be a non-empty string.")
+    if "engine" in kwargs:
+        if not isinstance(kwargs["engine"], str):
+            raise RuntimeError("engine must be a string.")
+        engine = normalize_engine(kwargs["engine"])
+        if engine:
+            kwargs["engine"] = engine
+        else:
+            del kwargs["engine"]
+    return kwargs
 
-    if engine:
-        kwargs["engine"] = engine
 
+def create_ocr(paddle_ocr_class, options):
     with warnings.catch_warnings():
-        warnings.simplefilter(
-            "ignore",
-            category=DeprecationWarning,
-        )
-
+        warnings.simplefilter("ignore", category=DeprecationWarning)
         try:
-            return paddle_ocr_class(**kwargs)
-        except TypeError:
-            kwargs.pop("engine", None)
-            return paddle_ocr_class(**kwargs)
+            return paddle_ocr_class(**options)
+        except Exception:
+            raise RuntimeError("PaddleOCR initialization failed. Check config.json and installed packages.") from None
 
 
 def run_ocr(ocr, image_path):
